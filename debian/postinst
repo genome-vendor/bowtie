@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+VER="2.0.0-beta5"
+
+if [ "$1" = "configure" ]; then
+    if [ ! -e /usr/bin/bowtie2 ]; then
+	update-alternatives --install /usr/bin/bowtie2-align bowtie2-align /usr/bin/bowtie2-align${VER} 1
+	update-alternatives --install /usr/bin/bowtie2-inspect bowtie2-inspect /usr/bin/bowtie2-inspect${VER} 1
+	update-alternatives --install /usr/bin/bowtie2-build bowtie2-build /usr/bin/bowtie2-build${VER} 1
+	update-alternatives --install /usr/bin/bowtie2 bowtie2 /usr/bin/bowtie2${VER} 1
+    fi
+fi

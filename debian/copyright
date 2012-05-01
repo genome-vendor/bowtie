@@ -1,0 +1,26 @@
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Bowtie2
+Source: http://bowtie-bio.sourceforge.net/bowtie2/index.shtml
+
+Files: *
+Copyright: Bowtie2 - Copyright 2011 Ben Langmead <blangmea@jhsph.edu>
+Included code copyright respective authors, see AUTHORS file for details.
+License: GPL-3+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3, or (at your option)
+any later version.
+.
+On Debian GNU/Linux systems, the complete text of the GNU General
+Public License can be found in `/usr/share/common-licenses/GPL-3`
+
+Files: debian/*
+Copyright: Copyright 2012 Adam Coffman <acoffman@genome.wustl.edu>
+License: GPL-3+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3, or (at your option)
+any later version.
+.
+On Debian GNU/Linux systems, the complete text of the GNU General
+Public License can be found in `/usr/share/common-licenses/GPL-3`

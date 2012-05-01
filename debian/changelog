@@ -1,0 +1,6 @@
+bowtie2.0.0-beta5 (2.0.0-beta5-1) unstable; urgency=low
+
+  * Made a debian package
+
+ -- Adam Coffman <acoffman@genome.wustl.edu>  Mon, 30 Apr 2012 15:02:57 -0500
+
