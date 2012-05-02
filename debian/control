@@ -1,7 +1,7 @@
 Source: bowtie2.0.0-beta5
 Section: science
 Priority: optional
-Maintainer: The Genome Institute at Washington University <genome-dev@genome.wustl.edu>
+Maintainer: The Genome Institute <gmt@genome.wustl.edu>
 Uploaders: Adam Coffman <acoffman@genome.wustl.edu>
 Build-Depends: debhelper (>= 7), g++
 Standards-Version: 3.9.2
