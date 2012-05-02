@@ -10,4 +10,5 @@ Homepage: http://bowtie-bio.sourceforge.net/bowtie2
 Package: bowtie2.0.0-beta5
 Architecture: amd64
 Depends: libc6
+Provides: bowtie2
 Description: Bowtie 2 is an ultrafast and memory-efficient tool for aligning sequencing reads to long reference sequences.
