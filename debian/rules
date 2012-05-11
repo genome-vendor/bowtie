@@ -22,5 +22,6 @@ override_dh_auto_install:
 	cp bowtie2 ${DEB_INST_DIR}
 	for filename in ${DEB_INST_DIR}/* ; do \
 		file=`basename $${filename}`; \
-		echo "export PATH=/usr/lib/${PKG}/bin:\$$PATH; exec $$file \$$@" > ${DEB_DIR}/usr/bin/$${file}${VER}; \
+		echo "#!/bin/sh" > ${DEB_DIR}/usr/bin/$${file}${VER}; \
+		echo "export PATH=/usr/lib/${PKG}/bin:\$$PATH; exec $$file \$$@" >> ${DEB_DIR}/usr/bin/$${file}${VER}; \
 		done
