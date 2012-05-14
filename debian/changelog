@@ -1,3 +1,9 @@
+bowtie2.0.0-beta5 (2.0.0-beta5-3) unstable; urgency=low
+
+  *Include shebang line in wrapper scripts
+
+ -- Thomas Mooney <tmooney@genome.wustl.edu>  Mon, 14 May 2012 13:07:38 -0500
+
 bowtie2.0.0-beta5 (2.0.0-beta5-2) unstable; urgency=low
 
   * Pass along wrapper shell arguments in wrapper script
