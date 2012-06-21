@@ -1,26 +1,25 @@
 #!/usr/bin/make -f
 
-PKG="bowtie2.0.0-beta5"
-VER="2.0.0-beta5"
-DEB_DIR=debian/${PKG}
-PWD=`pwd`
-DEB_INST_DIR=${PWD}/${DEB_DIR}/usr/lib/${PKG}/bin
+PRG=bowtie
+VER=2.0.0-beta5
+BIN_LIST=bowtie2 \
+         bowtie2-*
+PKG=$(PRG)$(VER)
+DEB_DIR=debian/$(PKG)
+PKG_LIB_DIR=/usr/lib/$(PKG)
+BIN_WRAPPER=\
+'\#!/bin/sh\n'\
+'export PATH=$(PKG_LIB_DIR)/bin:$$PATH\n'\
+"exec $${BASE_BIN}" '"$$@"'
 
 %:
 	dh $@
 
-build:
-	make
-
-override_dh_auto_configure:
-	echo ""
-
 override_dh_auto_install:
-	mkdir -p ${DEB_DIR}/usr/bin
-	mkdir -p ${DEB_INST_DIR}
-	cp bowtie2-* ${DEB_INST_DIR}
-	cp bowtie2 ${DEB_INST_DIR}
-	for filename in ${DEB_INST_DIR}/* ; do \
-		file=`basename $${filename}`; \
-		echo "#!/bin/sh\nexport PATH=/usr/lib/${PKG}/bin:\$$PATH; exec $$file \$$@" > ${DEB_DIR}/usr/bin/$${file}${VER}; \
-		done
+override_dh_auto_install:
+	mkdir -p $(DEB_DIR)/usr/bin $(DEB_DIR)$(PKG_LIB_DIR)/bin
+	for BIN in $(BIN_LIST); do \
+		BASE_BIN=$$(basename $${BIN});\
+		install -m 755 $${BIN} $(DEB_DIR)$(PKG_LIB_DIR)/bin/$${BASE_BIN};\
+		echo $(BIN_WRAPPER) | sed 's/^ *//' > $(DEB_DIR)/usr/bin/$${BASE_BIN}$(VER);\
+	done
