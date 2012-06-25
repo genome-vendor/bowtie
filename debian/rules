@@ -16,7 +16,6 @@ BIN_WRAPPER=\
 	dh $@
 
 override_dh_auto_install:
-override_dh_auto_install:
 	mkdir -p $(DEB_DIR)/usr/bin $(DEB_DIR)$(PKG_LIB_DIR)/bin
 	for BIN in $(BIN_LIST); do \
 		BASE_BIN=$$(basename $${BIN});\
