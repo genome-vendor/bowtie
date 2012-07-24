@@ -63,7 +63,8 @@ enum {
 	ARG_SAM_OMIT_SEC_SEQ,       // --sam-omit-sec-seq
 	ARG_SAM_NOHEAD,             // --sam-noHD/--sam-nohead
 	ARG_SAM_NOSQ,               // --sam-nosq/--sam-noSQ
-	ARG_SAM_RG,                 // --sam-RG
+	ARG_SAM_RG,                 // --sam-rg
+	ARG_SAM_RGID,               // --sam-rg-id
 	ARG_GAP_BAR,                // --gbar
 	ARG_QUALS1,                 // --Q1
 	ARG_QUALS2,                 // --Q2
@@ -136,7 +137,14 @@ enum {
 	ARG_NO_EXTEND,              // --no-extend
 	ARG_REORDER,                // --reorder
 	ARG_SHOW_RAND_SEED,         // --show-rand-seed
-	ARG_READ_PASSTHRU           // --passthrough
+	ARG_READ_PASSTHRU,          // --passthrough
+	ARG_SAMPLE,                 // --sample
+	ARG_CP_MIN,                 // --cp-min
+	ARG_CP_IVAL,                // --cp-ival
+	ARG_TRI,                    // --tri
+	ARG_LOCAL_SEED_CACHE_SZ,    // --local-seed-cache-sz
+	ARG_CURRENT_SEED_CACHE_SZ,  // --seed-cache-sz
+	ARG_SAM_NO_UNAL             // --no-unal
 };
 
 #endif

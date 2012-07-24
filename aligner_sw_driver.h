@@ -258,8 +258,8 @@ protected:
  */
 enum {
 	// All end-to-end and seed hits were examined
-	EXTEND_EXHAUSTED_CANDIDATES = 1,
 	// The policy does not need us to look any further
+	EXTEND_EXHAUSTED_CANDIDATES = 1,
 	EXTEND_POLICY_FULFILLED,
 	// We stopped because we reached a point where the only remaining
 	// alignments of interest have perfect scores, but we already investigated
@@ -339,6 +339,9 @@ public:
 		size_t maxDpStreak,          // stop after streak of this many dp fails
 		bool doExtend,               // do seed extension
 		bool enable8,                // use 8-bit SSE where possible
+		size_t cminlen,              // use checkpointer if read longer than this
+		size_t cpow2,                // interval between diagonals to checkpoint
+		bool doTri,                  // triangular mini-fills
 		int tighten,                 // -M score tightening mode
 		AlignmentCacheIface& ca,     // alignment cache for seed hits
 		RandomSource& rnd,           // pseudo-random source
@@ -393,6 +396,9 @@ public:
 		size_t maxMateStreak,        // stop seed range after N mate-find fails
 		bool doExtend,               // do seed extension
 		bool enable8,                // use 8-bit SSE where possible
+		size_t cminlen,              // use checkpointer if read longer than this
+		size_t cpow2,                // interval between diagonals to checkpoint
+		bool doTri,                  // triangular mini-fills
 		int tighten,                 // -M score tightening mode
 		AlignmentCacheIface& cs,     // alignment cache for seed hits
 		RandomSource& rnd,           // pseudo-random source
@@ -441,7 +447,8 @@ protected:
 		RandomSource& rnd,           // pseudo-random generator
 		WalkMetrics& wlm,            // group walk left metrics
 		SwMetrics& swmSeed,          // metrics for seed extensions
-		size_t& nelt_out);           // out: # elements total
+		size_t& nelt_out,            // out: # elements total
+		bool all);                   // report all hits?
 
 	void extend(
 		const Read& rd,       // read
@@ -474,7 +481,8 @@ protected:
 		RandomSource& rnd,           // pseudo-random generator
 		WalkMetrics& wlm,            // group walk left metrics
 		PerReadMetrics& prm,         // per-read metrics
-		size_t& nelt_out);           // out: # elements total
+		size_t& nelt_out,            // out: # elements total
+		bool all);                   // report all hits?
 
 	Random1toN               rand_;    // random number generators
 	EList<Random1toN, 16>    rands_;   // random number generators

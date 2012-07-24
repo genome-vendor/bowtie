@@ -85,7 +85,7 @@ BUILD_LIBS =
 
 SHARED_CPPS = ccnt_lut.cpp ref_read.cpp alphabet.cpp shmem.cpp \
               edit.cpp bt2_idx.cpp bt2_io.cpp bt2_util.cpp \
-              reference.cpp ds.cpp multikey_qsort.cpp
+              reference.cpp ds.cpp multikey_qsort.cpp limit.cpp
 SEARCH_CPPS = qual.cpp pat.cpp sam.cpp \
               read_qseq.cpp aligner_seed_policy.cpp \
               aligner_seed.cpp aligner_sw.cpp \
@@ -93,6 +93,7 @@ SEARCH_CPPS = qual.cpp pat.cpp sam.cpp \
 			  aligner_result.cpp ref_coord.cpp mask.cpp \
 			  pe.cpp aln_sink.cpp dp_framer.cpp \
 			  scoring.cpp presets.cpp unique.cpp \
+			  aligner_bt.cpp sse_util.cpp \
 			  aligner_swsse.cpp outq.cpp \
 			  aligner_swsse_loc_i16.cpp \
 			  aligner_swsse_ee_i16.cpp \
@@ -261,8 +262,8 @@ bowtie2-src: $(SRC_PKG_LIST)
 	zip tmp.zip $(SRC_PKG_LIST)
 	mv tmp.zip .src.tmp/bowtie2-$(VERSION)
 	cd .src.tmp/bowtie2-$(VERSION) ; unzip tmp.zip ; rm -f tmp.zip
-	cd .src.tmp ; zip -r bowtie2-$(VERSION).zip bowtie2-$(VERSION)
-	cp .src.tmp/bowtie2-$(VERSION).zip .
+	cd .src.tmp ; zip -r bowtie2-$(VERSION)-source.zip bowtie2-$(VERSION)
+	cp .src.tmp/bowtie2-$(VERSION)-source.zip .
 	rm -rf .src.tmp
 
 .PHONY: bowtie2-bin

@@ -61,6 +61,7 @@ public:
 		const LenList& reflens,   // reference sequence lengths
 		bool truncQname,          // truncate read name to 255?
 		bool omitsec,             // omit secondary SEQ/QUAL
+		bool noUnal,              // omit unaligned reads
 		const std::string& pg_id, // id
 		const std::string& pg_pn, // name
 		const std::string& pg_vn, // version
@@ -99,6 +100,7 @@ public:
 		bool print_zu) :
 		truncQname_(truncQname),
 		omitsec_(omitsec),
+		noUnal_(noUnal),
 		pg_id_(pg_id),
 		pg_pn_(pg_pn),
 		pg_vn_(pg_vn),
@@ -180,12 +182,14 @@ public:
 	template<typename TStr>
 	void printReadName(
 		BTString& o,
-		const TStr& name)
+		const TStr& name,
+		bool omitSlashMate)
 		const
 	{
 		size_t namelen = name.length();
-		if( namelen >= 2 &&
-			name[namelen-2] == '/' &&
+		if(omitSlashMate &&
+		   namelen >= 2 &&
+		   name[namelen-2] == '/' &&
 		   (name[namelen-1] == '1' || name[namelen-1] == '2' || name[namelen-1] == '3'))
 		{
 			namelen -= 2;
@@ -244,6 +248,7 @@ public:
 		bool first,                // first opt flag printed is first overall?
 		const Read& rd,            // the read
 		AlnRes& res,               // individual alignment result
+		StackedAln& staln,         // stacked alignment
 		const AlnFlags& flags,     // alignment flags
 		const AlnSetSumm& summ,    // summary of alignments for this read
 		const SeedAlSumm& ssm,     // seed alignment summary
@@ -274,11 +279,16 @@ public:
 	bool omitSecondarySeqQual() const {
 		return omitsec_;
 	}
+	
+	bool omitUnalignedReads() const {
+		return noUnal_;
+	}
 
 protected:
 
 	bool truncQname_;   // truncate QNAME to 255 chars?
 	bool omitsec_;      // omit secondary 
+	bool noUnal_;       // omit unaligned reads
 	
 	std::string pg_id_; // @PG ID: Program record identifier
 	std::string pg_pn_; // @PG PN: Program name

@@ -21,7 +21,6 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <algorithm>
 #include <cassert>
 #include <stdexcept>
 #include <getopt.h>
@@ -118,6 +117,7 @@ static bool fuzzy;
 static bool fullRef;
 static bool samTruncQname; // whether to truncate QNAME to 255 chars
 static bool samOmitSecSeqQual; // omit SEQ/QUAL for 2ndary alignments?
+static bool samNoUnal; // don't print records for unaligned reads
 static bool samNoHead; // don't print any header lines in SAM output
 static bool samNoSQ;   // don't print @SQ header lines
 static bool sam_print_as;
@@ -155,35 +155,35 @@ static bool bwaSwLike;
 static float bwaSwLikeC;
 static float bwaSwLikeT;
 static bool qcFilter;
-static bool sortByScore;   // prioritize alignments to report by score?
-bool gReportOverhangs; // false -> filter out alignments that fall off the end of a reference sequence
-static string rgid; // ID: setting for @RG header line
-static string rgs;  // SAM outputs for @RG header line
-static string rgs_optflag; // SAM optional flag to add corresponding to @RG ID
-static bool msample; // whether to report a random alignment when maxed-out via -m/-M
-int      gGapBarrier; // # diags on top/bot only to be entered diagonally
-int64_t  gRowLow;     // backtraces start from row w/ idx >= this (-1=no limit)
-bool     gRowFirst;   // sort alignments by row then score?
+static bool sortByScore;      // prioritize alignments to report by score?
+bool gReportOverhangs;        // false -> filter out alignments that fall off the end of a reference sequence
+static string rgid;           // ID: setting for @RG header line
+static string rgs;            // SAM outputs for @RG header line
+static string rgs_optflag;    // SAM optional flag to add corresponding to @RG ID
+static bool msample;          // whether to report a random alignment when maxed-out via -m/-M
+int      gGapBarrier;         // # diags on top/bot only to be entered diagonally
+int64_t  gRowLow;             // backtraces start from row w/ idx >= this (-1=no limit)
+bool     gRowFirst;           // sort alignments by row then score?
 static EList<string> qualities;
 static EList<string> qualities1;
 static EList<string> qualities2;
-static string polstr; // temporary holder for policy string
-static bool  msNoCache;      // true -> disable local cache
-static int   bonusMatchType; // how to reward matches
-static int   bonusMatch;     // constant reward if bonusMatchType=constant
-static int   penMmcType;     // how to penalize mismatches
-static int   penMmcMax;      // max mm penalty
-static int   penMmcMin;      // min mm penalty
-static int   penNType;       // how to penalize Ns in the read
-static int   penN;           // constant if N pelanty is a constant
-static bool  penNCatPair;    // concatenate mates before N filtering?
-static bool  localAlign;     // do local alignment in DP steps
-static bool  noisyHpolymer;  // set to true if gap penalties should be reduced to be consistent with a sequencer that under- and overcalls homopolymers
+static string polstr;         // temporary holder for policy string
+static bool  msNoCache;       // true -> disable local cache
+static int   bonusMatchType;  // how to reward matches
+static int   bonusMatch;      // constant reward if bonusMatchType=constant
+static int   penMmcType;      // how to penalize mismatches
+static int   penMmcMax;       // max mm penalty
+static int   penMmcMin;       // min mm penalty
+static int   penNType;        // how to penalize Ns in the read
+static int   penN;            // constant if N pelanty is a constant
+static bool  penNCatPair;     // concatenate mates before N filtering?
+static bool  localAlign;      // do local alignment in DP steps
+static bool  noisyHpolymer;   // set to true if gap penalties should be reduced to be consistent with a sequencer that under- and overcalls homopolymers
 static int   penRdGapConst;   // constant cost of extending a gap in the read
 static int   penRfGapConst;   // constant cost of extending a gap in the reference
 static int   penRdGapLinear;  // coeff of linear term for cost of gap extension in read
 static int   penRfGapLinear;  // coeff of linear term for cost of gap extension in ref
-static SimpleFunc scoreMin;    // minimum valid score as function of read len
+static SimpleFunc scoreMin;   // minimum valid score as function of read len
 static SimpleFunc nCeil;      // max # Ns allowed as function of read len
 static SimpleFunc msIval;     // interval between seeds as function of read len
 static int    multiseedMms;   // mismatches permitted in a multiseed seed
@@ -192,22 +192,25 @@ static size_t multiseedOff;   // offset to begin extracting seeds
 static uint32_t seedCacheLocalMB;   // # MB to use for non-shared seed alignment cacheing
 static uint32_t seedCacheCurrentMB; // # MB to use for current-read seed hit cacheing
 static uint32_t exactCacheCurrentMB; // # MB to use for current-read seed hit cacheing
-static size_t maxhalf;       // max width on one side of DP table
-static bool seedSumm; // print summary information about seed hits, not alignments
-static bool doUngapped;      // do ungapped alignment
-static size_t maxIters;      // stop after this many extend loop iterations
-static size_t maxUg;         // stop after this many ungap extends
-static size_t maxDp;         // stop after this many DPs
-static size_t maxItersIncr;  // amt to add to maxIters for each -k > 1
-static size_t maxEeStreak;   // stop after this many end-to-end fails in a row
-static size_t maxUgStreak;   // stop after this many ungap fails in a row
-static size_t maxDpStreak;   // stop after this many dp fails in a row
-static size_t maxStreakIncr; // amt to add to streak for each -k > 1
-static size_t maxMateStreak; // stop seed range after this many mate-find fails
-static bool doExtend;        // extend seed hits
-static bool enable8;         // use 8-bit SSE where possible?
-static string defaultPreset; // default preset; applied immediately
-static bool ignoreQuals;     // all mms incur same penalty, regardless of qual
+static size_t maxhalf;        // max width on one side of DP table
+static bool seedSumm;         // print summary information about seed hits, not alignments
+static bool doUngapped;       // do ungapped alignment
+static size_t maxIters;       // stop after this many extend loop iterations
+static size_t maxUg;          // stop after this many ungap extends
+static size_t maxDp;          // stop after this many DPs
+static size_t maxItersIncr;   // amt to add to maxIters for each -k > 1
+static size_t maxEeStreak;    // stop after this many end-to-end fails in a row
+static size_t maxUgStreak;    // stop after this many ungap fails in a row
+static size_t maxDpStreak;    // stop after this many dp fails in a row
+static size_t maxStreakIncr;  // amt to add to streak for each -k > 1
+static size_t maxMateStreak;  // stop seed range after this many mate-find fails
+static bool doExtend;         // extend seed hits
+static bool enable8;          // use 8-bit SSE where possible?
+static size_t cminlen;        // longer reads use checkpointing
+static size_t cpow2;          // checkpoint interval log2
+static bool doTri;            // do triangular mini-fills?
+static string defaultPreset;  // default preset; applied immediately
+static bool ignoreQuals;      // all mms incur same penalty, regardless of qual
 static string wrapper;        // type of wrapper script, so we can print correct usage
 static EList<string> queries; // list of query files
 static string outfile;        // write SAM output to this file
@@ -219,6 +222,7 @@ static size_t do1mmMinLen;    // length below which we disable 1mm e2e search
 static int seedBoostThresh;   // if average non-zero position has more than this many elements
 static size_t nSeedRounds;    // # seed rounds
 static bool reorder;          // true -> reorder SAM recs in -p mode
+static float sampleFrac;      // only align random fraction of input reads
 
 static string bt2index;      // read Bowtie 2 index from files with this prefix
 static EList<pair<int, string> > extra_opts;
@@ -289,6 +293,7 @@ static void resetOptions() {
 	fullRef					= false; // print entire reference name instead of just up to 1st space
 	samTruncQname           = true;  // whether to truncate QNAME to 255 chars
 	samOmitSecSeqQual       = false; // omit SEQ/QUAL for 2ndary alignments?
+	samNoUnal               = false; // omit SAM records for unaligned reads
 	samNoHead				= false; // don't print any header lines in SAM output
 	samNoSQ					= false; // don't print @SQ header lines
 	sam_print_as            = true;
@@ -376,6 +381,9 @@ static void resetOptions() {
 	maxMateStreak      = 10;    // in PE: abort seed range after N mate-find fails
 	doExtend           = true;  // do seed extensions
 	enable8            = true;  // use 8-bit SSE where possible?
+	cminlen            = 2000;  // longer reads use checkpointing
+	cpow2              = 4;     // checkpoint interval log2
+	doTri              = false; // do triangular mini-fills?
 	defaultPreset      = "sensitive%LOCAL%"; // default preset; applied immediately
 	extra_opts.clear();
 	extra_opts_cur = 0;
@@ -392,6 +400,7 @@ static void resetOptions() {
 	nSeedRounds = 2;         // # rounds of seed searches to do for repetitive reads
 	do1mmMinLen = 60;        // length below which we disable 1mm search
 	reorder = false;         // reorder SAM records with -p > 1
+	sampleFrac = 1.1f;       // align all reads
 }
 
 static const char *short_options = "fF:qbzhcu:rv:s:aP:t3:5:w:p:k:M:1:2:I:X:CQ:N:i:L:U:x:S:g:O:D:R:";
@@ -459,15 +468,26 @@ static struct option long_options[] = {
 	{(char*)"usage",        no_argument,       0,            ARG_USAGE},
 	{(char*)"sam-no-qname-trunc", no_argument, 0,            ARG_SAM_NO_QNAME_TRUNC},
 	{(char*)"sam-omit-sec-seq", no_argument,   0,            ARG_SAM_OMIT_SEC_SEQ},
+	{(char*)"sam-no-head",  no_argument,       0,            ARG_SAM_NOHEAD},
 	{(char*)"sam-nohead",   no_argument,       0,            ARG_SAM_NOHEAD},
 	{(char*)"sam-noHD",     no_argument,       0,            ARG_SAM_NOHEAD},
 	{(char*)"sam-no-hd",    no_argument,       0,            ARG_SAM_NOHEAD},
 	{(char*)"sam-nosq",     no_argument,       0,            ARG_SAM_NOSQ},
 	{(char*)"sam-no-sq",    no_argument,       0,            ARG_SAM_NOSQ},
 	{(char*)"sam-noSQ",     no_argument,       0,            ARG_SAM_NOSQ},
+	{(char*)"no-head",      no_argument,       0,            ARG_SAM_NOHEAD},
+	{(char*)"no-hd",        no_argument,       0,            ARG_SAM_NOHEAD},
+	{(char*)"no-sq",        no_argument,       0,            ARG_SAM_NOSQ},
+	{(char*)"no-HD",        no_argument,       0,            ARG_SAM_NOHEAD},
+	{(char*)"no-SQ",        no_argument,       0,            ARG_SAM_NOSQ},
+	{(char*)"no-unal",      no_argument,       0,            ARG_SAM_NO_UNAL},
 	{(char*)"color",        no_argument,       0,            'C'},
 	{(char*)"sam-RG",       required_argument, 0,            ARG_SAM_RG},
 	{(char*)"sam-rg",       required_argument, 0,            ARG_SAM_RG},
+	{(char*)"sam-rg-id",    required_argument, 0,            ARG_SAM_RGID},
+	{(char*)"RG",           required_argument, 0,            ARG_SAM_RG},
+	{(char*)"rg",           required_argument, 0,            ARG_SAM_RG},
+	{(char*)"rg-id",        required_argument, 0,            ARG_SAM_RGID},
 	{(char*)"snpphred",     required_argument, 0,            ARG_SNPPHRED},
 	{(char*)"snpfrac",      required_argument, 0,            ARG_SNPFRAC},
 	{(char*)"gbar",         required_argument, 0,            ARG_GAP_BAR},
@@ -550,6 +570,13 @@ static struct option long_options[] = {
 	{(char*)"seed-rounds",      required_argument, 0,        'R'},
 	{(char*)"reorder",          no_argument,       0,        ARG_REORDER},
 	{(char*)"passthrough",      no_argument,       0,        ARG_READ_PASSTHRU},
+	{(char*)"sample",           required_argument, 0,        ARG_SAMPLE},
+	{(char*)"cp-min",           required_argument, 0,        ARG_CP_MIN},
+	{(char*)"cp-ival",          required_argument, 0,        ARG_CP_IVAL},
+	{(char*)"tri",              no_argument,       0,        ARG_TRI},
+	{(char*)"local-seed-cache-sz", required_argument, 0,     ARG_LOCAL_SEED_CACHE_SZ},
+	{(char*)"seed-cache-sz",       required_argument, 0,     ARG_CURRENT_SEED_CACHE_SZ},
+	{(char*)"no-unal",          no_argument,       0,        ARG_SAM_NO_UNAL},
 	{(char*)0, 0, 0, 0} // terminator
 };
 
@@ -642,7 +669,7 @@ static void printUsage(ostream& out) {
 		<< "  For --end-to-end:" << endl
 		<< "   --very-fast            -D 5 -R 1 -N 0 -L 22 -i S,0,2.50" << endl
 		<< "   --fast                 -D 10 -R 2 -N 0 -L 22 -i S,0,2.50" << endl
-		<< "   --sensitive            -D 15 -R 2 -N 0 -L 22 -i S,1,1.25 (default)" << endl
+		<< "   --sensitive            -D 15 -R 2 -N 0 -L 22 -i S,1,1.15 (default)" << endl
 		<< "   --very-sensitive       -D 20 -R 3 -N 0 -L 20 -i S,1,0.50" << endl
 		<< endl
 		<< "  For --local:" << endl
@@ -654,7 +681,7 @@ static void printUsage(ostream& out) {
 	    << " Alignment:" << endl
 		<< "  -N <int>           max # mismatches in seed alignment; can be 0 or 1 (0)" << endl
 		<< "  -L <int>           length of seed substrings; must be >3, <32 (22)" << endl
-		<< "  -i <func>          interval between seed substrings w/r/t read len (S,1,1.25)" << endl
+		<< "  -i <func>          interval between seed substrings w/r/t read len (S,1,1.15)" << endl
 		<< "  --n-ceil <func>    func for max # non-A/C/G/Ts permitted in aln (L,0,0.15)" << endl
 		<< "  --dpad <int>       include <int> extra ref chars on sides of DP table (15)" << endl
 		<< "  --gbar <int>       disallow gaps within <int> nucs of read extremes (4)" << endl
@@ -676,12 +703,11 @@ static void printUsage(ostream& out) {
 		<< "                     (G,20,8 for local, L,-0.6,-0.6 for end-to-end)" << endl
 		<< endl
 	    << " Reporting:" << endl
-	    << "  -M <int>           look for up to <int>+1 alns; report best, with MAPQ (5 for" << endl
-		<< "                     --end-to-end, 2 for --local)" << endl
+	    << "  (default)          look for multiple alignments, report best, with MAPQ" << endl
 		<< "   OR" << endl
-	    << "  -k <int>           report up to <int> alns per read; MAPQ not meaningful (off)" << endl
+	    << "  -k <int>           report up to <int> alns per read; MAPQ not meaningful" << endl
 		<< "   OR" << endl
-	    << "  -a/--all           report all alignments; very slow (off)" << endl
+	    << "  -a/--all           report all alignments; very slow, MAPQ not meaningful" << endl
 		<< endl
 	    << " Effort:" << endl
 	    << "  -D <int>           give up extending after <int> failed extends in a row (15)" << endl
@@ -715,9 +741,13 @@ static void printUsage(ostream& out) {
 		<< "  --met-file <path>  send metrics to file at <path> (off)" << endl
 		<< "  --met-stderr       send metrics to stderr (off)" << endl
 		<< "  --met <int>        report internal counters & metrics every <int> secs (1)" << endl
-	    << "  --sam-nohead       supppress header lines, i.e. lines starting with @" << endl
-	    << "  --sam-nosq         supppress @SQ header lines" << endl
-	    << "  --sam-RG <text>    add <text> (usually \"lab:value\") to @RG line of SAM header" << endl
+	// Following is supported in the wrapper instead
+	//  << "  --no-unal          supppress SAM records for unaligned reads" << endl
+	    << "  --no-head          supppress header lines, i.e. lines starting with @" << endl
+	    << "  --no-sq            supppress @SQ header lines" << endl
+	    << "  --rg-id <text>     set read group id, reflected in @RG line and RG:Z: opt field" << endl
+	    << "  --rg <text>        add <text> (\"lab:value\") to @RG line of SAM header." << endl
+	    << "                     Note: @RG line only printed when --rg-id is set." << endl
 		<< endl
 	    << " Performance:" << endl
 	    << "  -o/--offrate <int> override offrate of index; must be >= index's offrate" << endl
@@ -739,6 +769,12 @@ static void printUsage(ostream& out) {
 	    << "  --version          print version information and quit" << endl
 	    << "  -h/--help          print this usage message" << endl
 	    ;
+	if(wrapper.empty()) {
+		cerr << endl
+		     << "*** Warning ***" << endl
+			 << "'bowtie2-align' was run directly.  It is recommended that you run the wrapper script 'bowtie2' instead." << endl
+			 << endl;
+	}
 }
 
 /**
@@ -911,6 +947,12 @@ static void parseOption(int next_option, const char *arg) {
 		case ARG_OVERHANG: gReportOverhangs = true; break;
 		case ARG_NO_CACHE: msNoCache = true; break;
 		case ARG_USE_CACHE: msNoCache = false; break;
+		case ARG_LOCAL_SEED_CACHE_SZ:
+			seedCacheLocalMB = (uint32_t)parseInt(1, "--local-seed-cache-sz arg must be at least 1", arg);
+			break;
+		case ARG_CURRENT_SEED_CACHE_SZ:
+			seedCacheCurrentMB = (uint32_t)parseInt(1, "--seed-cache-sz arg must be at least 1", arg);
+			break;
 		case ARG_REFIDX: noRefNames = true; break;
 		case ARG_FUZZY: fuzzy = true; break;
 		case ARG_FULLREF: fullRef = true; break;
@@ -975,6 +1017,8 @@ static void parseOption(int next_option, const char *arg) {
 			}
 			assert_eq(1, khits);
 			saw_M = true;
+			cerr << "Warning: -M is deprecated.  Use -D and -R to adjust " <<
+			        "effort instead." << endl;
 			break;
 		}
 		case ARG_EXTEND_ITERS: {
@@ -1058,6 +1102,7 @@ static void parseOption(int next_option, const char *arg) {
 		case ARG_NO_RC: gNorc = true; break;
 		case ARG_SAM_NO_QNAME_TRUNC: samTruncQname = false; break;
 		case ARG_SAM_OMIT_SEC_SEQ: samOmitSecSeqQual = true; break;
+		case ARG_SAM_NO_UNAL: samNoUnal = true; break;
 		case ARG_SAM_NOHEAD: samNoHead = true; break;
 		case ARG_SAM_NOSQ: samNoSQ = true; break;
 		case ARG_SAM_PRINT_YI: sam_print_yi = true; break;
@@ -1071,6 +1116,18 @@ static void parseOption(int next_option, const char *arg) {
 			sam_print_zs = true;
 			break;
 		}
+		case ARG_SAMPLE:
+			sampleFrac = parse<float>(arg);
+			break;
+		case ARG_CP_MIN:
+			cminlen = parse<size_t>(arg);
+			break;
+		case ARG_CP_IVAL:
+			cpow2 = parse<size_t>(arg);
+			break;
+		case ARG_TRI:
+			doTri = true;
+			break;
 		case ARG_READ_PASSTHRU: {
 			sam_print_xr = true;
 			break;
@@ -1088,15 +1145,22 @@ static void parseOption(int next_option, const char *arg) {
 			break;
 		}
 		case ARG_SAM_RG: {
-			string arg = arg;
-			if(arg.substr(0, 3) == "ID:") {
+			string argstr = arg;
+			if(argstr.substr(0, 3) == "ID:") {
 				rgid = "\t";
-				rgid += arg;
-				rgs_optflag = "RG:Z:" + arg.substr(3);
+				rgid += argstr;
+				rgs_optflag = "RG:Z:" + argstr.substr(3);
 			} else {
 				rgs += '\t';
-				rgs += arg;
+				rgs += argstr;
 			}
+			break;
+		}
+		case ARG_SAM_RGID: {
+			string argstr = arg;
+			rgid = "\t";
+			rgid = "\tID:" + argstr;
+			rgs_optflag = "RG:Z:" + argstr;
 			break;
 		}
 		case ARG_PARTITION: partitionSz = parse<int>(arg); break;
@@ -1159,7 +1223,18 @@ static void parseOption(int next_option, const char *arg) {
 			break;
 		}
 		case 'N': { polstr += ";SEED="; polstr += arg; break; }
-		case 'L': { polstr += ";SEEDLEN="; polstr += arg; break; }
+		case 'L': {
+			int64_t len = parse<size_t>(arg);
+			if(len < 0) {
+				cerr << "Error: -L argument must be >= 0; was " << arg << endl;
+				throw 1;
+			}
+			if(len > 32) {
+				cerr << "Error: -L argument must be <= 32; was" << arg << endl;
+				throw 1;
+			}
+			polstr += ";SEEDLEN="; polstr += arg; break;
+		}
 		case 'O':
 			multiseedOff = parse<size_t>(arg);
 			break;
@@ -1402,6 +1477,11 @@ static void parseOptions(int argc, const char **argv) {
 		     << "files must sequences must be specified with -2 and --Q2." << endl;
 		throw 1;
 	}
+	if(!rgs.empty() && rgid.empty()) {
+		cerr << "Warning: --rg was specified without --rg-id also "
+		     << "being specified.  @RG line is not printed unless --rg-id "
+			 << "is specified." << endl;
+	}
 	// Check for duplicate mate input files
 	if(format != CMDLINE) {
 		for(size_t i = 0; i < mates1.size(); i++) {
@@ -1618,6 +1698,7 @@ struct PerfMetrics {
 		const BTString *name) // non-NULL name pointer if is per-read record
 	{
 		ThreadSafe ts(&lock, sync);
+		ostringstream stderrSs;
 		time_t curtime = time(0);
 		char buf[1024];
 		if(first) {
@@ -1768,11 +1849,11 @@ struct PerfMetrics {
 			
 			if(name != NULL) {
 				if(o != NULL) o->writeChars("Name\t");
-				if(metricsStderr) cerr << "Name\t";
+				if(metricsStderr) stderrSs << "Name\t";
 			}
 			
 			if(o != NULL) o->writeChars(str);
-			if(metricsStderr) cerr << str;
+			if(metricsStderr) stderrSs << str;
 			first = false;
 		}
 		
@@ -1785,554 +1866,554 @@ struct PerfMetrics {
 				o->write('\t');
 			}
 			if(metricsStderr) {
-				cerr << (*name) << '\t';
+				stderrSs << (*name) << '\t';
 			}
 		}
 			
 		// 1. Current time in secs
 		itoa10<time_t>(curtime, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		const OuterLoopMetrics& ol = total ? olm : olmu;
 		
 		// 2. Reads
 		itoa10<uint64_t>(ol.reads, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 3. Bases
 		itoa10<uint64_t>(ol.bases, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 4. Same-read reads
 		itoa10<uint64_t>(ol.srreads, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 5. Same-read bases
 		itoa10<uint64_t>(ol.srbases, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 6. Unfiltered reads
 		itoa10<uint64_t>(ol.ureads, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 7. Unfiltered bases
 		itoa10<uint64_t>(ol.ubases, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 
 		const ReportingMetrics& rp = total ? rpm : rpmu;
 
 		// 8. Paired reads
 		itoa10<uint64_t>(rp.npaired, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 9. Unpaired reads
 		itoa10<uint64_t>(rp.nunpaired, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 10. Pairs with unique concordant alignments
 		itoa10<uint64_t>(rp.nconcord_uni, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 11. Pairs with repetitive concordant alignments
 		itoa10<uint64_t>(rp.nconcord_rep, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 12. Pairs with 0 concordant alignments
 		itoa10<uint64_t>(rp.nconcord_0, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 13. Pairs with 1 discordant alignment
 		itoa10<uint64_t>(rp.ndiscord, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 14. Mates from unaligned pairs that align uniquely
 		itoa10<uint64_t>(rp.nunp_0_uni, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 15. Mates from unaligned pairs that align repetitively
 		itoa10<uint64_t>(rp.nunp_0_rep, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 16. Mates from unaligned pairs that fail to align
 		itoa10<uint64_t>(rp.nunp_0_0, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 17. Mates from repetitive pairs that align uniquely
 		itoa10<uint64_t>(rp.nunp_rep_uni, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 18. Mates from repetitive pairs that align repetitively
 		itoa10<uint64_t>(rp.nunp_rep_rep, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 19. Mates from repetitive pairs that fail to align
 		itoa10<uint64_t>(rp.nunp_rep_0, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 20. Unpaired reads that align uniquely
 		itoa10<uint64_t>(rp.nunp_uni, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 21. Unpaired reads that align repetitively
 		itoa10<uint64_t>(rp.nunp_rep, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 22. Unpaired reads that fail to align
 		itoa10<uint64_t>(rp.nunp_0, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 
 		const SeedSearchMetrics& sd = total ? sdm : sdmu;
 		
 		// 23. Seed searches
 		itoa10<uint64_t>(sd.seedsearch, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 24. Hits in 'current' cache
 		itoa10<uint64_t>(sd.intrahit, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 25. Hits in 'local' cache
 		itoa10<uint64_t>(sd.interhit, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 26. Out of memory
 		itoa10<uint64_t>(sd.ooms, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 27. Burrows-Wheeler ops in aligner
 		itoa10<uint64_t>(sd.bwops, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 28. Burrows-Wheeler branches (edits) in aligner
 		itoa10<uint64_t>(sd.bweds, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		const WalkMetrics& wl = total ? wlm : wlmu;
 		
 		// 29. Burrows-Wheeler ops in resolver
 		itoa10<uint64_t>(wl.bwops, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 30. Burrows-Wheeler branches in resolver
 		itoa10<uint64_t>(wl.branches, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 31. Burrows-Wheeler offset resolutions
 		itoa10<uint64_t>(wl.resolves, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 34. Offset reports
 		itoa10<uint64_t>(wl.reports, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		// 35. Redundant seed hit
 		itoa10<uint64_t>(total ? swmSeed.rshit : swmuSeed.rshit, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 
 		// 36. # times the best (out of fw/rc) minimum # edits was 0
 		itoa10<uint64_t>(total ? sdm.bestmin0 : sdmu.bestmin0, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 37. # times the best (out of fw/rc) minimum # edits was 1
 		itoa10<uint64_t>(total ? sdm.bestmin1 : sdmu.bestmin1, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 38. # times the best (out of fw/rc) minimum # edits was 2
 		itoa10<uint64_t>(total ? sdm.bestmin2 : sdmu.bestmin2, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		// 39. Exact aligner attempts
 		itoa10<uint64_t>(total ? swmSeed.exatts : swmuSeed.exatts, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 40. Exact aligner successes
 		itoa10<uint64_t>(total ? swmSeed.exsucc : swmuSeed.exsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 41. Exact aligner ranges
 		itoa10<uint64_t>(total ? swmSeed.exranges : swmuSeed.exranges, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 42. Exact aligner rows
 		itoa10<uint64_t>(total ? swmSeed.exrows : swmuSeed.exrows, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 43. Exact aligner OOMs
 		itoa10<uint64_t>(total ? swmSeed.exooms : swmuSeed.exooms, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 
 		// 44. 1mm aligner attempts
 		itoa10<uint64_t>(total ? swmSeed.mm1atts : swmuSeed.mm1atts, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 45. 1mm aligner successes
 		itoa10<uint64_t>(total ? swmSeed.mm1succ : swmuSeed.mm1succ, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 46. 1mm aligner ranges
 		itoa10<uint64_t>(total ? swmSeed.mm1ranges : swmuSeed.mm1ranges, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 47. 1mm aligner rows
 		itoa10<uint64_t>(total ? swmSeed.mm1rows : swmuSeed.mm1rows, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 48. 1mm aligner OOMs
 		itoa10<uint64_t>(total ? swmSeed.mm1ooms : swmuSeed.mm1ooms, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 
 		// 49 Ungapped aligner success
 		itoa10<uint64_t>(total ? swmSeed.ungapsucc : swmuSeed.ungapsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 50. Ungapped aligner fail
 		itoa10<uint64_t>(total ? swmSeed.ungapfail : swmuSeed.ungapfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 51. Ungapped aligner no decision
 		itoa10<uint64_t>(total ? swmSeed.ungapnodec : swmuSeed.ungapnodec, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 
 		// 52. # seed-extend DPs with < 10 gaps
 		itoa10<uint64_t>(total ? swmSeed.sws10 : swmuSeed.sws10, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 53. # seed-extend DPs with < 5 gaps
 		itoa10<uint64_t>(total ? swmSeed.sws5 : swmuSeed.sws5, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 54. # seed-extend DPs with < 3 gaps
 		itoa10<uint64_t>(total ? swmSeed.sws3 : swmuSeed.sws3, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 
 		// 55. # seed-extend DPs with < 10 gaps
 		itoa10<uint64_t>(total ? swmMate.sws10 : swmuMate.sws10, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 56. # seed-extend DPs with < 5 gaps
 		itoa10<uint64_t>(total ? swmMate.sws5 : swmuMate.sws5, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 57. # seed-extend DPs with < 3 gaps
 		itoa10<uint64_t>(total ? swmMate.sws3 : swmuMate.sws3, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		const SSEMetrics& dpSse16s = total ? dpSse16Seed : dpSse16uSeed;
 		
 		// 58. 16-bit SSE seed-extend DPs tried
 		itoa10<uint64_t>(dpSse16s.dp, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 59. 16-bit SSE seed-extend DPs saturated
 		itoa10<uint64_t>(dpSse16s.dpsat, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 60. 16-bit SSE seed-extend DPs failed
 		itoa10<uint64_t>(dpSse16s.dpfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 61. 16-bit SSE seed-extend DPs succeeded
 		itoa10<uint64_t>(dpSse16s.dpsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 62. 16-bit SSE seed-extend DP columns completed
 		itoa10<uint64_t>(dpSse16s.col, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 63. 16-bit SSE seed-extend DP cells completed
 		itoa10<uint64_t>(dpSse16s.cell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 64. 16-bit SSE seed-extend DP inner loop iters completed
 		itoa10<uint64_t>(dpSse16s.inner, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 65. 16-bit SSE seed-extend DP fixup loop iters completed
 		itoa10<uint64_t>(dpSse16s.fixup, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 66. 16-bit SSE seed-extend DP gather, cells with potential solutions
 		itoa10<uint64_t>(dpSse16s.gathsol, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 67. 16-bit SSE seed-extend DP backtrace attempts
 		itoa10<uint64_t>(dpSse16s.bt, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 68. 16-bit SSE seed-extend DP failed backtrace attempts
 		itoa10<uint64_t>(dpSse16s.btfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 69. 16-bit SSE seed-extend DP succesful backtrace attempts
 		itoa10<uint64_t>(dpSse16s.btsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 70. 16-bit SSE seed-extend DP backtrace cells
 		itoa10<uint64_t>(dpSse16s.btcell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 71. 16-bit SSE seed-extend DP core-diag rejections
 		itoa10<uint64_t>(dpSse16s.corerej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 72. 16-bit SSE seed-extend DP N rejections
 		itoa10<uint64_t>(dpSse16s.nrej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		const SSEMetrics& dpSse8s = total ? dpSse8Seed : dpSse8uSeed;
 		
 		// 73. 8-bit SSE seed-extend DPs tried
 		itoa10<uint64_t>(dpSse8s.dp, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 74. 8-bit SSE seed-extend DPs saturated
 		itoa10<uint64_t>(dpSse8s.dpsat, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 75. 8-bit SSE seed-extend DPs failed
 		itoa10<uint64_t>(dpSse8s.dpfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 76. 8-bit SSE seed-extend DPs succeeded
 		itoa10<uint64_t>(dpSse8s.dpsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 77. 8-bit SSE seed-extend DP columns completed
 		itoa10<uint64_t>(dpSse8s.col, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 78. 8-bit SSE seed-extend DP cells completed
 		itoa10<uint64_t>(dpSse8s.cell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 79. 8-bit SSE seed-extend DP inner loop iters completed
 		itoa10<uint64_t>(dpSse8s.inner, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 80. 8-bit SSE seed-extend DP fixup loop iters completed
 		itoa10<uint64_t>(dpSse8s.fixup, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 81. 16-bit SSE seed-extend DP gather, cells with potential solutions
 		itoa10<uint64_t>(dpSse8s.gathsol, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 82. 16-bit SSE seed-extend DP backtrace attempts
 		itoa10<uint64_t>(dpSse8s.bt, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 83. 16-bit SSE seed-extend DP failed backtrace attempts
 		itoa10<uint64_t>(dpSse8s.btfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 84. 16-bit SSE seed-extend DP succesful backtrace attempts
 		itoa10<uint64_t>(dpSse8s.btsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 85. 16-bit SSE seed-extend DP backtrace cells
 		itoa10<uint64_t>(dpSse8s.btcell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 86. 16-bit SSE seed-extend DP core-diag rejections
 		itoa10<uint64_t>(dpSse8s.corerej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 87. 16-bit SSE seed-extend DP N rejections
 		itoa10<uint64_t>(dpSse8s.nrej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		const SSEMetrics& dpSse16m = total ? dpSse16Mate : dpSse16uMate;
 		
 		// 88. 16-bit SSE mate-finding DPs tried
 		itoa10<uint64_t>(dpSse16m.dp, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 89. 16-bit SSE mate-finding DPs saturated
 		itoa10<uint64_t>(dpSse16m.dpsat, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 90. 16-bit SSE mate-finding DPs failed
 		itoa10<uint64_t>(dpSse16m.dpfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 91. 16-bit SSE mate-finding DPs succeeded
 		itoa10<uint64_t>(dpSse16m.dpsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 92. 16-bit SSE mate-finding DP columns completed
 		itoa10<uint64_t>(dpSse16m.col, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 93. 16-bit SSE mate-finding DP cells completed
 		itoa10<uint64_t>(dpSse16m.cell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 94. 16-bit SSE mate-finding DP inner loop iters completed
 		itoa10<uint64_t>(dpSse16m.inner, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 95. 16-bit SSE mate-finding DP fixup loop iters completed
 		itoa10<uint64_t>(dpSse16m.fixup, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 96. 16-bit SSE mate-finding DP gather, cells with potential solutions
 		itoa10<uint64_t>(dpSse16m.gathsol, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 97. 16-bit SSE mate-finding DP backtrace attempts
 		itoa10<uint64_t>(dpSse16m.bt, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 98. 16-bit SSE mate-finding DP failed backtrace attempts
 		itoa10<uint64_t>(dpSse16m.btfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 99. 16-bit SSE mate-finding DP succesful backtrace attempts
 		itoa10<uint64_t>(dpSse16m.btsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 100. 16-bit SSE mate-finding DP backtrace cells
 		itoa10<uint64_t>(dpSse16m.btcell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 101. 16-bit SSE mate-finding DP core-diag rejections
 		itoa10<uint64_t>(dpSse16m.corerej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 102. 16-bit SSE mate-finding DP N rejections
 		itoa10<uint64_t>(dpSse16m.nrej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		const SSEMetrics& dpSse8m = total ? dpSse8Mate : dpSse8uMate;
 		
 		// 103. 8-bit SSE mate-finding DPs tried
 		itoa10<uint64_t>(dpSse8m.dp, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 104. 8-bit SSE mate-finding DPs saturated
 		itoa10<uint64_t>(dpSse8m.dpsat, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 105. 8-bit SSE mate-finding DPs failed
 		itoa10<uint64_t>(dpSse8m.dpfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 106. 8-bit SSE mate-finding DPs succeeded
 		itoa10<uint64_t>(dpSse8m.dpsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 107. 8-bit SSE mate-finding DP columns completed
 		itoa10<uint64_t>(dpSse8m.col, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 108. 8-bit SSE mate-finding DP cells completed
 		itoa10<uint64_t>(dpSse8m.cell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 109. 8-bit SSE mate-finding DP inner loop iters completed
 		itoa10<uint64_t>(dpSse8m.inner, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 110. 8-bit SSE mate-finding DP fixup loop iters completed
 		itoa10<uint64_t>(dpSse8m.fixup, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 111. 16-bit SSE mate-finding DP gather, cells with potential solutions
 		itoa10<uint64_t>(dpSse8m.gathsol, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 112. 16-bit SSE mate-finding DP backtrace attempts
 		itoa10<uint64_t>(dpSse8m.bt, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 113. 16-bit SSE mate-finding DP failed backtrace attempts
 		itoa10<uint64_t>(dpSse8m.btfail, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 114. 16-bit SSE mate-finding DP succesful backtrace attempts
 		itoa10<uint64_t>(dpSse8m.btsucc, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 115. 16-bit SSE mate-finding DP backtrace cells
 		itoa10<uint64_t>(dpSse8m.btcell, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 116. 16-bit SSE mate-finding DP core rejections
 		itoa10<uint64_t>(dpSse8m.corerej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 117. 16-bit SSE mate-finding N rejections
 		itoa10<uint64_t>(dpSse8m.nrej, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		// 118. Backtrace candidates filtered due to starting cell
 		itoa10<uint64_t>(total ? nbtfiltst : nbtfiltst_u, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 119. Backtrace candidates filtered due to low score
 		itoa10<uint64_t>(total ? nbtfiltsc : nbtfiltsc_u, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 120. Backtrace candidates filtered due to domination
 		itoa10<uint64_t>(total ? nbtfiltdo : nbtfiltdo_u, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		
 		// 121. Overall memory peak
 		itoa10<size_t>(gMemTally.peak() >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 122. Uncategorized memory peak
 		itoa10<size_t>(gMemTally.peak(0) >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 123. Ebwt memory peak
 		itoa10<size_t>(gMemTally.peak(EBWT_CAT) >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 124. Cache memory peak
 		itoa10<size_t>(gMemTally.peak(CA_CAT) >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 125. Resolver memory peak
 		itoa10<size_t>(gMemTally.peak(GW_CAT) >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 126. Seed aligner memory peak
 		itoa10<size_t>(gMemTally.peak(AL_CAT) >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 127. Dynamic programming aligner memory peak
 		itoa10<size_t>(gMemTally.peak(DP_CAT) >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 128. Miscellaneous memory peak
 		itoa10<size_t>(gMemTally.peak(MISC_CAT) >> 20, buf);
-		if(metricsStderr) cerr << buf << '\t';
+		if(metricsStderr) stderrSs << buf << '\t';
 		if(o != NULL) { o->writeChars(buf); o->write('\t'); }
 		// 129. Debug memory peak
 		itoa10<size_t>(gMemTally.peak(DEBUG_CAT) >> 20, buf);
-		if(metricsStderr) cerr << buf;
+		if(metricsStderr) stderrSs << buf;
 		if(o != NULL) { o->writeChars(buf); }
 
 		if(o != NULL) { o->write('\n'); }
-		if(metricsStderr) cerr << endl;
+		if(metricsStderr) cerr << stderrSs.str() << endl;
 		if(!total) mergeIncrementals();
 	}
 	
@@ -2672,7 +2753,12 @@ static void* multiseedSearchWorker(void *vp) {
 			continue;
 		}
 		TReadId rdid = ps->rdid();
-		if(rdid >= skipReads && rdid < qUpto) {
+		bool sample = true;
+		if(sampleFrac < 1.0f) {
+			rnd.init(ROTL(ps->bufa().seed, 2));
+			sample = rnd.nextFloat() < sampleFrac;
+		}
+		if(rdid >= skipReads && rdid < qUpto && sample) {
 			// Align this read/pair
 			bool retry = true;
 			//
@@ -3002,6 +3088,9 @@ static void* multiseedSearchWorker(void *vp) {
 								mtStreak[mate], // max mate fails per seed range
 								doExtend,       // extend seed hits
 								enable8,        // use 8-bit SSE where possible
+								cminlen,        // checkpoint if read is longer
+								cpow2,          // checkpointer interval, log2
+								doTri,          // triangular mini-fills?
 								tighten,        // -M score tightening mode
 								ca,             // seed alignment cache
 								rnd,            // pseudo-random source
@@ -3041,6 +3130,9 @@ static void* multiseedSearchWorker(void *vp) {
 								streak[mate],   // stop after streak of this many ungap fails
 								doExtend,       // extend seed hits
 								enable8,        // use 8-bit SSE where possible
+								cminlen,        // checkpoint if read is longer
+								cpow2,          // checkpointer interval, log2
+								doTri,          // triangular mini-fills
 								tighten,        // -M score tightening mode
 								ca,             // seed alignment cache
 								rnd,            // pseudo-random source
@@ -3177,6 +3269,9 @@ static void* multiseedSearchWorker(void *vp) {
 								mtStreak[mate], // max mate fails per seed range
 								doExtend,       // extend seed hits
 								enable8,        // use 8-bit SSE where possible
+								cminlen,        // checkpoint if read is longer
+								cpow2,          // checkpointer interval, log2
+								doTri,          // triangular mini-fills?
 								tighten,        // -M score tightening mode
 								ca,             // seed alignment cache
 								rnd,            // pseudo-random source
@@ -3216,6 +3311,9 @@ static void* multiseedSearchWorker(void *vp) {
 								streak[mate],   // stop after streak of this many ungap fails
 								doExtend,       // extend seed hits
 								enable8,        // use 8-bit SSE where possible
+								cminlen,        // checkpoint if read is longer
+								cpow2,          // checkpointer interval, log2
+								doTri,          // triangular mini-fills?
 								tighten,        // -M score tightening mode
 								ca,             // seed alignment cache
 								rnd,            // pseudo-random source
@@ -3418,6 +3516,9 @@ static void* multiseedSearchWorker(void *vp) {
 									mtStreak[mate], // max mate fails per seed range
 									doExtend,       // extend seed hits
 									enable8,        // use 8-bit SSE where possible
+									cminlen,        // checkpoint if read is longer
+									cpow2,          // checkpointer interval, log2
+									doTri,          // triangular mini-fills?
 									tighten,        // -M score tightening mode
 									ca,             // seed alignment cache
 									rnd,            // pseudo-random source
@@ -3457,6 +3558,9 @@ static void* multiseedSearchWorker(void *vp) {
 									streak[mate],   // stop after streak of this many ungap fails
 									doExtend,       // extend seed hits
 									enable8,        // use 8-bit SSE where possible
+									cminlen,        // checkpoint if read is longer
+									cpow2,          // checkpointer interval, log2
+									doTri,          // triangular mini-fills?
 									tighten,        // -M score tightening mode
 									ca,             // seed alignment cache
 									rnd,            // pseudo-random source
@@ -3818,6 +3922,7 @@ static void driver(
 			reflens,                // reference sequence lengths
 			samTruncQname,          // whether to truncate QNAME to 255 chars
 			samOmitSecSeqQual,      // omit SEQ/QUAL for 2ndary alignments?
+			samNoUnal,              // omit unaligned-read records?
 			string("bowtie2"),      // program id
 			string("bowtie2"),      // program name
 			string(BOWTIE2_VERSION), // program version

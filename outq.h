@@ -57,6 +57,7 @@ public:
 		reorder_(reorder),
 		threadSafe_(threadSafe)
 	{
+		assert(nthreads <= 1 || threadSafe);
 		if(threadSafe_) {
 			MUTEX_INIT(lock_);
 		}
@@ -119,6 +120,32 @@ protected:
 	bool            reorder_;
 	bool            threadSafe_;
 	MUTEX_T         lock_;
+};
+
+class OutputQueueMark {
+public:
+	OutputQueueMark(
+		OutputQueue& q,
+		const BTString& rec,
+		TReadId rdid,
+		size_t threadId) :
+		q_(q),
+		rec_(rec),
+		rdid_(rdid),
+		threadId_(threadId)
+	{
+		q_.beginRead(rdid, threadId);
+	}
+	
+	~OutputQueueMark() {
+		q_.finishRead(rec_, rdid_, threadId_);
+	}
+	
+protected:
+	OutputQueue& q_;
+	const BTString& rec_;
+	TReadId rdid_;
+	size_t threadId_;
 };
 
 #endif

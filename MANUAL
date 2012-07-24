@@ -43,7 +43,6 @@ paper].  Thank you!
 [Cufflinks]:       http://cufflinks.cbcb.umd.edu/
 [Crossbow]:        http://bowtie-bio.sf.net/crossbow
 [Myrna]:           http://bowtie-bio.sf.net/myrna
-[BSmooth]:         http://bowtie-bio.sf.net/myrna
 [Bowtie paper]:    http://genomebiology.com/2009/10/3/R25
 [GPLv3 license]:   http://www.gnu.org/licenses/gpl-3.0.html
 
@@ -138,7 +137,7 @@ Download Bowtie 2 sources and binaries from the [Download] section of the
 Sourceforge site.  Binaries are available for Intel architectures (`i386` and
 `x86_64`) running Linux, and Mac OS X.  A 32-bit version is available for
 Windows.  If you plan to compile Bowtie 2 yourself, make sure to get the source
-package, i.e., the filename that ends in "-src.zip".
+package, i.e., the filename that ends in "-source.zip".
 
 Building from source
 --------------------
@@ -152,11 +151,11 @@ building with MinGW, first install MinGW and [MSYS], the [zlib] library, and the
 drive the build process.
 
 First, download the source package from the [sourceforge site].  Make sure
-you're getting the source package; the file downloaded should end in `-src.zip`.
-Unzip the file, change to the unzipped directory, and build the Bowtie 2 tools
-by running GNU `make` (usually with the command `make`, but sometimes with
-`gmake`) with no arguments.  If building with MinGW, run `make` from the MSYS
-environment.
+you're getting the source package; the file downloaded should end in
+`-source.zip`. Unzip the file, change to the unzipped directory, and build the
+Bowtie 2 tools by running GNU `make` (usually with the command `make`, but
+sometimes with `gmake`) with no arguments.  If building with MinGW, run `make`
+from the MSYS environment.
 
 To support the `-p` (multithreading) option, Bowtie 2 needs the `pthreads`
 library.  To compile Bowtie 2 without `pthreads` (which disables `-p`), use
@@ -168,8 +167,8 @@ library.  To compile Bowtie 2 without `pthreads` (which disables `-p`), use
 [zlib]:     http://cygwin.com/packages/mingw-zlib/
 [pthreads]: http://sourceware.org/pthreads-win32/
 [GnuWin32]: http://gnuwin32.sf.net/packages/coreutils.htm
-[Download]: https://sourceforge.net/projects/bowtie-bio/files/bowtie/
-[sourceforge site]: https://sourceforge.net/projects/bowtie-bio/files/bowtie/
+[Download]: https://sourceforge.net/projects/bowtie-bio/files/bowtie2/
+[sourceforge site]: https://sourceforge.net/projects/bowtie-bio/files/bowtie2/
 [Xcode]:    http://developer.apple.com/xcode/
 
 Adding to PATH
@@ -181,6 +180,11 @@ from the command line, you will get the version you just installed without
 having to specify the entire path.  This is recommended for most users.  To do
 this, follow your operating system's instructions for adding the directory to
 your [PATH].
+
+If you would like to install Bowtie 2 by copying the Bowtie 2 executable files
+to an existing directory in your [PATH], make sure that you copy all the
+executables, including `bowtie2`, `bowtie2-align`, `bowtie2-build` and
+`bowtie2-inspect`.
 
 [PATH environment variable]: http://en.wikipedia.org/wiki/PATH_(variable)
 [PATH]: http://en.wikipedia.org/wiki/PATH_(variable)
@@ -478,8 +482,8 @@ Reporting
 
 The reporting mode governs how many alignments Bowtie 2 looks for, and how to
 report them.  Bowtie 2 has three distinct reporting modes.  The default
-reporting mode, `-M`, is similar to the default reporting mode of many other
-read alignment tools, including [BWA].  It is also similar to Bowtie 1's `-M`
+reporting mode is similar to the default reporting mode of many other read
+alignment tools, including [BWA].  It is also similar to Bowtie 1's `-M`
 alignment mode.
 
 In general, when we say that a read has an alignment, we mean that it has a
@@ -505,22 +509,17 @@ Two alignments for the same pair are distinct if either the mate 1s in the two
 paired-end alignments are distinct or the mate 2s in the two alignments are
 distinct or both.
 
-### -M mode: search for multiple alignments, report the best one
+### Default mode: search for multiple alignments, report the best one
 
-In `-M` mode, Bowtie 2 searches for at most N distinct, valid alignments for
-each read, where N equals the integer specified with the `-M` parameter plus
-one. That is, if `-M 3` is specified, Bowtie 2 will search for at most 4
-distinct alignments.  Bowtie 2 will stop searching when it can't find more
-distinct valid alignments, or when it finds N distinct alignments, whichever
-happens first.  It then reports the best alignment found using information about
-the other alignments to estimate mapping quality and to set SAM optional fields,
-such as the `AS:i` and `XS:i` fields.
-
-Increasing `-M` makes Bowtie 2 slower, but increases the likelihood that it
-will find and report the correct alignment for a read that aligns many places.
-Bowtie 2 does not "find" alignments in any specific order, so for reads that
-have more than N distinct, valid alignments, Bowtie 2 does not gaurantee that
-the alignment reported is the best possible in terms of alignment score.
+By default, Bowtie 2 searches for distinct, valid alignments for each read. When
+it finds a valid alignment, it generally will continue to look for alignments
+that are nearly as good or better.  It will eventually stop looking, either
+because it exceeded a limit placed on search effort (see `-D` and `-R`) or
+because it already knows all it needs to know to report an alignment.
+Information from the best alignments are used to estimate mapping quality (the
+`MAPQ` [SAM] field) and to set SAM optional fields, such as `AS:i` and
+`XS:i`.  Bowtie 2 does not gaurantee that the alignment reported is the best
+possible in terms of alignment score.
 
 See also: `-D`, which puts an upper limit on the number of dynamic programming
 problems (i.e. seed extensions) that can "fail" in a row before Bowtie 2 stops
@@ -766,9 +765,7 @@ considered valid, and `x` is the read length.
 The basename of the index for the reference genome.  The basename is the name of
 any of the index files up to but not including the final `.1.bt2` / `.rev.1.bt2`
 / etc.  `bowtie2` looks for the specified index first in the current directory,
-then in the `indexes` subdirectory under the directory where the `bowtie2`
-executable is located, then looks in the directory specified in the
-`BOWTIE2_INDEXES` environment variable.
+then in the directory specified in the `BOWTIE2_INDEXES` environment variable.
 
     -1 <m1>
 
@@ -874,11 +871,10 @@ Pipeline versions (prior to 1.3).  Default: off.
 
     --int-quals
 
-Quality values are represented in the read input file as
-space-separated ASCII integers, e.g., `40 40 30 40`..., rather than
-ASCII characters, e.g., `II?I`....  Integers are treated as being on
-the [Phred quality] scale unless `--solexa-quals` is also specified.
-Default: off.
+Quality values are represented in the read input file as space-separated ASCII
+integers, e.g., `40 40 30 40`..., rather than ASCII characters, e.g., `II?I`....
+ Integers are treated as being on the [Phred quality] scale unless
+`--solexa-quals` is also specified. Default: off.
 
 #### Preset options in `--end-to-end` mode
 
@@ -953,7 +949,7 @@ one-size-fits-all number.  For instance, specifying `-i S,1,2.5` sets the
 interval function `f` to `f(x) = 1 + 2.5 * sqrt(x)`, where x is the read length.
 See also: [setting function options]. If the function returns a result less than
 1, it is rounded up to 1. Default: the `--sensitive` preset is used by
-default, which sets `-i` to `S,1,1.25` in `--end-to-end` mode to `-i S,1,0.75`
+default, which sets `-i` to `S,1,1.15` in `--end-to-end` mode to `-i S,1,0.75`
 in `--local` mode.
 
     --n-ceil <func>
@@ -1056,44 +1052,36 @@ the default in `--local` mode is `G,20,8`.
 
 #### Reporting options
 
-    -M <int>
-
-In this mode, `bowtie2` searches for at most `<int>+1` distinct, valid
-alignments for each read.  The search terminates when it can't find more
-distinct valid alignments, or when it finds `<int>+1` distinct alignments,
-whichever happens first. Only the best alignment is reported.  Information from
-the other alignments is used to estimate mapping quality and to set SAM optional
-fields, such as `AS:i` and `XS:i`.  Increasing `-M` makes `bowtie2` slower,
-but increases the likelihood that it will pick the correct alignment for a read
-that aligns many places.  For reads that have more than `<int>+1` distinct,
-valid alignments, Bowtie 2 does not gaurantee that the alignment reported is the
-best possible in terms of alignment score.  See also: [reporting].  `-M` is
-mutually exclusive with `-k` and `-a`.  The default is 3 in `--end-to-end`
-mode and 2 in `--local` mode.
-
     -k <int>
 
-In this mode, `bowtie2` searches for at most `<int>` distinct, valid alignments
-for each read.  The search terminates when it can't find more distinct valid
-alignments, or when it finds `<int>`, whichever happens first.  All alignments
-found are reported in descending order by alignment score. The alignment score
-for a paired-end alignment equals the sum of the alignment scores of the
-individual mates. Each reported read or pair alignment beyond the first has the
-SAM 'secondary' bit (which equals 256) set in its FLAGS field.  For reads that
-have more than `<int>` distinct, valid alignments, `bowtie2` does not gaurantee
-that the `<int>` alignments reported are the best possible in terms of alignment
-score.  `-k` is mutually exclusive with `-M` and `-a`, and `-M` is the
-default.
+By default, `bowtie2` searches for distinct, valid alignments for each read.
+When it finds a valid alignment, it continues looking for alignments that are
+nearly as good or better.  The best alignment found is reported (randomly
+selected from among best if tied).  Information about the best alignments is
+used to estimate mapping quality and to set SAM optional fields, such as
+`AS:i` and `XS:i`.
 
-Note: Bowtie 2 is not particularly designed with large `-k` in mind, and when
+When `-k` is specified, however, `bowtie2` behaves differently.  Instead, it
+searches for at most `<int>` distinct, valid alignments for each read.  The
+search terminates when it can't find more distinct valid alignments, or when it
+finds `<int>`, whichever happens first.  All alignments found are reported in
+descending order by alignment score. The alignment score for a paired-end
+alignment equals the sum of the alignment scores of the individual mates. Each
+reported read or pair alignment beyond the first has the SAM 'secondary' bit
+(which equals 256) set in its FLAGS field.  For reads that have more than
+`<int>` distinct, valid alignments, `bowtie2` does not gaurantee that the
+`<int>` alignments reported are the best possible in terms of alignment score. 
+`-k` is mutually exclusive with `-a`.
+
+Note: Bowtie 2 is not designed with large values for `-k` in mind, and when
 aligning reads to long, repetitive genomes large `-k` can be very, very slow.
 
     -a
 
 Like `-k` but with no upper limit on number of alignments to search for.  `-a`
-is mutually exclusive with `-M` and `-k`, and `-M` is the default.
+is mutually exclusive with `-k`.
 
-Note: Bowtie 2 is not particularly designed with `-a` mode in mind, and when
+Note: Bowtie 2 is not designed with `-a` mode in mind, and when
 aligning reads to long, repetitive genomes this mode can be very, very slow.
 
 #### Effort options
@@ -1255,22 +1243,32 @@ either `--met-stderr` or `--met-file` are specified.  Default: 1.
 
 #### SAM options
 
-    --sam-no-hd
+    --no-unal
+
+Suppress SAM records for reads that failed to align.
+
+    --no-hd
 
 Suppress SAM header lines (starting with `@`).
 
-    --sam-no-sq
+    --no-sq
 
 Suppress `@SQ` SAM header lines.
 
-    --sam-rg <text>
+    --rg-id <text>
 
-Add `<text>` (usually of the form `TAG:VAL`, e.g. `ID:IL7LANE2`) as a field on
-the `@RG` header line.  Specify `--sam-rg` multiple times to set multiple
-fields.  See the [SAM Spec][SAM] for details about what fields are legal.  Note
-that, if any `@RG` fields are set using this option, the `ID` and `SM` fields
-must both be among them to make the `@RG` line legal according to the [SAM
-Spec][SAM].
+Set the read group ID to `<text>`.  This causes the SAM `@RG` header line to be
+printed, with `<text>` as the value associated with the `ID:` tag.  It also
+causes the `RG:Z:` extra field to be attached to each SAM output record, with
+value set to `<text>`.
+
+    --rg <text>
+
+Add `<text>` (usually of the form `TAG:VAL`, e.g. `SM:Pool1`) as a field on the
+`@RG` header line.  Note: in order for the `@RG` line to appear, `--rg-id`
+must also be specified.  This is because the `ID` tag is required by the [SAM
+Spec][SAM].  Specify `--rg` multiple times to set multiple fields.  See the
+[SAM Spec][SAM] for details about what fields are legal.
 
 #### Performance options
 
@@ -1337,8 +1335,8 @@ Following is a brief description of the [SAM] format as output by `bowtie2`.
 For more details, see the [SAM format specification][SAM].
 
 By default, `bowtie2` prints a SAM header with `@HD`, `@SQ` and `@PG` lines. 
-When one or more `--sam-rg` arguments are specified, `bowtie2` will also print
-an `@RG` line that includes all user-specified `--sam-rg` tokens separated by
+When one or more `--rg` arguments are specified, `bowtie2` will also print
+an `@RG` line that includes all user-specified `--rg` tokens separated by
 tabs.
 
 Each subsequnt line describes an alignment or, if the read failed to align, a
@@ -1462,10 +1460,18 @@ alignment:
     string into the reference string.  Only present if SAM record is for an
     aligned read.
 
-        YF:Z:<N>
+        YF:Z:<S>
 
     String indicating reason why the read was filtered out.  See also:
     [Filtering].  Only appears for reads that were filtered out.
+
+        YT:Z:<S>
+
+    Value of `UU` indicates the read was not part of a pair.  Value of `CP`
+    indicates the read was part of a pair and the pair aligned concordantly.
+    Value of `DP` indicates the read was part of a pair and the pair aligned
+    discordantly.  Value of `UP` indicates the read was part of a pair but the
+    pair failed to aligned either concordantly or discordantly.
 
         MD:Z:<S>
 
@@ -1676,9 +1682,7 @@ Usage:
 The basename of the index to be inspected.  The basename is name of any of the
 index files but with the `.X.bt2` or `.rev.X.bt2` suffix omitted.
 `bowtie2-inspect` first looks in the current directory for the index files, then
-looks in the `indexes` subdirectory under the directory where the
-currently-running `bowtie` executable is located, then looks in the directory
-specified in the `BOWTIE2_INDEXES` environment variable.
+in the directory specified in the `BOWTIE2_INDEXES` environment variable.
 
 ### Options
 

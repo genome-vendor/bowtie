@@ -35,7 +35,7 @@ use FindBin qw($Bin);
 use POSIX;
 
 (-x "$Bin/bowtie2-align") ||
-	die "Error: Expected bowtie2 to be in same directory with bowtie2-aligner:\n$Bin";
+	die "Error: Expected bowtie2 to be in same directory with bowtie2-align:\n$Bin";
 
 # Return a version of the argument string where all percent escapes are
 # expanded into the unescaped character.
@@ -99,6 +99,7 @@ my $debug = 0;
 my %read_fns = ();
 my %read_compress = ();
 my $cap_out = undef;       # Filename for passthrough
+my $no_unal = 0;
 
 # Remove whitespace
 for my $i (0..$#bt2_args) {
@@ -116,6 +117,22 @@ for(my $i = 0; $i < scalar(@bt2_args); $i++) {
 		$args[1] = join("=", $args[1..$#args]);
 	}
 	$arg = $args[0];
+	if($arg eq "-U" || $arg eq "--unpaired") {
+		$bt2_args[$i] = undef;
+		$arg =~ s/^-U//; $arg =~ s/^--unpaired//;
+		if($arg ne "") {
+			# Argument was part of this token
+			my @args = split(/,/, $arg);
+			for my $a (@args) { push @bt2w_args, ("-U", $a); }
+		} else {
+			# Argument is in the next token
+			$i < scalar(@bt2_args)-1 || die;
+			$i++;
+			my @args = split(/,/, $bt2_args[$i]);
+			for my $a (@args) { push @bt2w_args, ("-U", $a); }
+			$bt2_args[$i] = undef;
+		}
+	}
 	if($arg =~ /^--?([12])/ && $arg !~ /^--?12/) {
 		my $mate = $1;
 		$bt2_args[$i] = undef;
@@ -137,6 +154,10 @@ for(my $i = 0; $i < scalar(@bt2_args); $i++) {
 		$debug = 1;
 		$bt2_args[$i] = undef;
 	}
+	if($arg eq "--no-unal") {
+		$no_unal = 1;
+		$bt2_args[$i] = undef;
+	}
 	for my $rarg ("un-conc", "al-conc", "un", "al") {
 		if($arg =~ /^--${rarg}/ || $arg =~ /^--${rarg}-gz/ || $arg =~ /^--${rarg}-bz2/) {
 			$bt2_args[$i] = undef;
@@ -154,7 +175,10 @@ for(my $i = 0; $i < scalar(@bt2_args); $i++) {
 		}
 	}
 }
-if(scalar(keys %read_fns) > 0) {
+# If the user asked us to redirect some reads to files, or to suppress
+# unaligned reads, then we need to capture the output from Bowtie 2 and pass it
+# through this wrapper.
+if(scalar(keys %read_fns) > 0 || $no_unal) {
 	push @bt2_args, "--passthrough";
 	$cap_out = "-";
 	for(my $i = 0; $i < scalar(@bt2_args); $i++) {
@@ -172,6 +196,7 @@ my @tmp = ();
 for (@bt2_args) { push(@tmp, $_) if defined($_); }
 @bt2_args = @tmp;
 
+my @unps = ();
 my @mate1s = ();
 my @mate2s = ();
 my @to_delete = ();
@@ -181,13 +206,15 @@ my $ref_str = undef;
 my $no_pipes = 0;
 my $keep = 0;
 my $verbose = 0;
+my $readpipe = undef;
 
 my @bt2w_args_cp = @bt2w_args;
 @ARGV = @bt2w_args;
 GetOptions(
 	"1=s"                           => \@mate1s,
 	"2=s"                           => \@mate2s,
-	"reads=s"                       => \@mate1s,
+	"reads=s"                       => \@unps,
+	"U=s"                           => \@unps,
 	"temp-directory=s"              => \$temp_dir,
 	"bam"                           => \$bam_out,
 	"no-named-pipes"                => \$no_pipes,
@@ -220,36 +247,38 @@ sub cat_file($$) {
 
 # Return non-zero if and only if the input should be wrapped (i.e. because
 # it's compressed).
-sub wrapInput($$) {
-	my ($mate1s, $mate2s) = @_;
-	return 0 if scalar(@$mate1s) == 0;
-	return 1 if $mate1s->[0] =~ /\.gz$/;
-	return 1 if $mate1s->[0] =~ /\.bz2$/;
+sub wrapInput($$$) {
+	my ($unps, $mate1s, $mate2s) = @_;
+	for my $fn (@$unps, @$mate1s, @$mate2s) {
+		return 1 if $fn =~ /\.gz$/ || $fn =~ /\.bz2$/;
+	}
 	return 0;
 }
 
-if(wrapInput(\@mate1s, \@mate2s)) {
-	# Put reads into temporary files or fork off processes to feed named pipes
-	scalar(@mate2s) == scalar(@mate1s) ||
-		die "Different number of files specified with --reads/-1 as with -2";
-	# Make a named pipe for delivering mate #1s
-	my $m1fn = "$temp_dir/$$.inpipe1";
-	push @to_delete, $m1fn;
-	push @bt2_args, "-1 $m1fn";
-	my $pid = 0;
-	$pid = fork() unless $no_pipes;
-	if($pid == 0) {
-		# Open named pipe 1 for writing
-		if(!$no_pipes) {
-			mkfifo($m1fn, 0700) ||
-				die "Error: mkfifo($m1fn) failed.  Try --no-named-pipes.";
-		}
-		open(my $ofh, ">$m1fn") || die "Can't open '$m1fn' for writing";
-		for my $ifn (@mate1s) { cat_file($ifn, $ofh); }
-		close($ofh);
-		exit 0 unless $no_pipes;
-	}
+if(wrapInput(\@unps, \@mate1s, \@mate2s)) {
 	if(scalar(@mate2s) > 0) {
+		#
+		# Wrap paired-end inputs
+		#
+		# Put reads into temporary files or fork off processes to feed named pipes
+		scalar(@mate2s) == scalar(@mate1s) ||
+			die "Different number of files specified with --reads/-1 as with -2";
+		# Make a named pipe for delivering mate #1s
+		my $m1fn = "$temp_dir/$$.inpipe1";
+		push @to_delete, $m1fn;
+		push @bt2_args, "-1 $m1fn";
+		my $pid = 0;
+		$pid = fork() unless $no_pipes;
+		if($pid == 0) {
+			# Open named pipe 1 for writing
+			if(!$no_pipes) {
+				mkfifo($m1fn, 0700) || die "Error: mkfifo($m1fn) failed.";
+			}
+			open(my $ofh, ">$m1fn") || die "Can't open '$m1fn' for writing";
+			for my $ifn (@mate1s) { cat_file($ifn, $ofh); }
+			close($ofh);
+			exit 0 unless $no_pipes;
+		}
 		# Make a named pipe for delivering mate #2s
 		my $m2fn = "$temp_dir/$$.inpipe2";
 		push @to_delete, $m2fn;
@@ -259,8 +288,7 @@ if(wrapInput(\@mate1s, \@mate2s)) {
 		if($pid == 0) {
 			# Open named pipe 2 for writing
 			if(!$no_pipes) {
-				mkfifo($m2fn, 0700) ||
-					die "Error: mkfifo($m2fn) failed.  Try --no-named-pipes.";
+				mkfifo($m2fn, 0700) || die "Error: mkfifo($m2fn) failed.";
 			}
 			open(my $ofh, ">$m2fn") || die "Can't open '$m2fn' for writing";
 			for my $ifn (@mate2s) { cat_file($ifn, $ofh); }
@@ -268,10 +296,36 @@ if(wrapInput(\@mate1s, \@mate2s)) {
 			exit 0 unless $no_pipes;
 		}
 	}
-} elsif(scalar(@mate2s) > 0) {
-	# Just pass all the mate arguments along to the binary
-	push @bt2_args, ("-1", join(",", @mate1s));
-	push @bt2_args, ("-2", join(",", @mate2s));
+	if(scalar(@unps) > 0) {
+		#
+		# Wrap unpaired inputs.
+		#
+		# Make a named pipe for delivering unpaired reads
+		my $ufn = "$temp_dir/$$.unp";
+		push @to_delete, $ufn;
+		push @bt2_args, "-U $ufn";
+		my $pid = 0;
+		$pid = fork() unless $no_pipes;
+		if($pid == 0) {
+			# Open named pipe 2 for writing
+			if(!$no_pipes) {
+				mkfifo($ufn, 0700) || die "Error: mkfifo($ufn) failed.";
+			}
+			open(my $ofh, ">$ufn") || die "Can't open '$ufn' for writing";
+			for my $ifn (@unps) { cat_file($ifn, $ofh); }
+			close($ofh);
+			exit 0 unless $no_pipes;
+		}
+	}
+} else {
+	if(scalar(@mate2s) > 0) {
+		# Just pass all the mate arguments along to the binary
+		push @bt2_args, ("-1", join(",", @mate1s));
+		push @bt2_args, ("-2", join(",", @mate2s));
+	}
+	if(scalar(@unps) > 0) {
+		push @bt2_args, ("-U", join(",", @unps));
+	}
 }
 
 if(defined($ref_str)) {
@@ -294,7 +348,13 @@ if($verbose) {
 }
 
 my $debug_str = ($debug ? "-debug" : "");
+
+# Construct command invoking bowtie2-align
 my $cmd = "$Bin/bowtie2-align$debug_str --wrapper basic-0 ".join(" ", @bt2_args);
+
+# Possibly add read input on an anonymous pipe
+$cmd = "$readpipe $cmd" if defined($readpipe);
+
 print STDERR "$cmd\n" if $verbose;
 my $ret;
 if(defined($cap_out)) {
@@ -341,45 +401,56 @@ if(defined($cap_out)) {
 			}
 		}
 	}
+	my $passthru = scalar(keys %read_fns) > 0;
 	while(<BT>) {
 		chomp;
-		unless(/^\@/) {
-			if(scalar(keys %read_fns) > 0) {
-				/\tXR:Z:([^\t]*)/ || die "Could not parse passthrough output:\n$_\n";
-				my $read = $1;
-				$read = unescape($read);
-				my @ts = split(/\t/, $_);
-				my $mate1 = (($ts[1] &  64) != 0);
-				my $mate2 = (($ts[1] & 128) != 0);
+		my $filt = 0;
+		unless(substr($_, 0, 1) eq "@") {
+			# If we are supposed to output certain reads to files...
+			my $tab1_i = index($_, "\t") + 1;
+			my $tab2_i = index($_, "\t", $tab1_i);
+			my $fl = substr($_, $tab1_i, $tab2_i - $tab1_i);
+			my @ts = split(/\t/, $_);
+			my $unal = ($fl & 4) != 0;
+			if($passthru) {
+				# Parse the passthrough output
+				my $xrii = index($_, "XR:Z:");
+				$xrii > -1 || die;
+				my $xri = $xrii + 5; # skip over XR:Z:
+				my $xrf = index($_, "\t", $xri);
+				$xrf = length($_) if $xrf == -1;
+				my $read = substr($_, $xri, $xrf - $xri);
+				my $mate1 = (($fl &  64) != 0);
+				my $mate2 = (($fl & 128) != 0);
 				my $unp = !$mate1 && !$mate2;
 				my $pair = !$unp;
 				if((defined($read_fhs{un}) || defined($read_fhs{al})) && $unp) {
-					if(($ts[1] & 4) != 0) {
+					if($unal) {
 						# Failed to align
-						print {$read_fhs{un}} $read if defined($read_fhs{un});
+						print {$read_fhs{un}} unescape($read) if defined($read_fhs{un});
 					} else {
 						# Aligned
-						print {$read_fhs{al}} $read if defined($read_fhs{al});
+						print {$read_fhs{al}} unescape($read) if defined($read_fhs{al});
 					}
 				}
 				if((defined($read_fhs{"un-conc"}) || defined($read_fhs{"al-conc"})) && $pair) {
-					my $conc  = (($ts[1] &   2) != 0);
+					my $conc  = (($fl &   2) != 0);
 					if     ($conc && $mate1) {
-						print {$read_fhs{"al-conc"}{1}} $read if defined($read_fhs{"al-conc"});
+						print {$read_fhs{"al-conc"}{1}} unescape($read) if defined($read_fhs{"al-conc"});
 					} elsif($conc && $mate2) {
-						print {$read_fhs{"al-conc"}{2}} $read if defined($read_fhs{"al-conc"});
+						print {$read_fhs{"al-conc"}{2}} unescape($read) if defined($read_fhs{"al-conc"});
 					} elsif(!$conc && $mate1) {
-						print {$read_fhs{"un-conc"}{1}} $read if defined($read_fhs{"un-conc"});
+						print {$read_fhs{"un-conc"}{1}} unescape($read) if defined($read_fhs{"un-conc"});
 					} elsif(!$conc && $mate2) {
-						print {$read_fhs{"un-conc"}{2}} $read if defined($read_fhs{"un-conc"});
+						print {$read_fhs{"un-conc"}{2}} unescape($read) if defined($read_fhs{"un-conc"});
 					}
 				}
 				# Remove the passthrough string
-				s/\tXR:Z:[^\t]*//;
-				s/\tXr:Z:[^\t]*//;
+				substr($_, $xrii - 1) = "";
 			}
+			$filt = 1 if $no_unal && $unal;
 		}
-		print {$ofh} "$_\n";
+		print {$ofh} "$_\n" if !$filt;
 	}
 	for my $k (@fhs_to_close) { close($k); }
 	close($ofh);
@@ -389,4 +460,4 @@ if(defined($cap_out)) {
 	$ret = system($cmd);
 }
 if(!$keep) { for(@to_delete) { unlink($_); } }
-exit $ret;
+exit $ret >> 8;

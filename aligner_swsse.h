@@ -348,7 +348,7 @@ struct SSEMatrix {
 		int readc,
 		int readq,
 		const Scoring& sc,   // scoring scheme
-		TAlScore offsetsc,   // offset to add to each score
+		int64_t offsetsc,    // offset to add to each score
 		RandomSource& rand,  // rand gen for choosing among equal options
 		bool& empty,         // out: =true iff no way to backtrace
 		int& cur,            // out: =type of transition
@@ -398,7 +398,7 @@ struct SSEMatrix {
 	size_t           rowstride_;   // # vectors b/t adjacent cells in same col
 	EList_m128i      matbuf_;      // buffer for holding vectors
 	ELList<uint16_t> masks_;       // buffer for masks/backtracking flags
-	EList<bool>      reset_;       // true iff row has been reset
+	EList<bool>      reset_;       // true iff row in masks_ has been reset
 };
 
 /**
@@ -408,6 +408,7 @@ struct SSEMatrix {
 struct SSEData {
 	SSEData(int cat = 0) : profbuf_(cat), mat_(cat) { }
 	EList_m128i    profbuf_;     // buffer for query profile & temp vecs
+	EList_m128i    vecbuf_;      // buffer for 2 column vectors (not using mat_)
 	size_t         qprofStride_; // stride for query profile
 	size_t         gbarStride_;  // gap barrier for query profile
 	SSEMatrix      mat_;         // SSE matrix for holding all E, F, H vectors
@@ -492,5 +493,8 @@ inline void SSEMatrix::fMaskSet(
 	masks_[row][col] &= ~(7 << 10);
 	masks_[row][col] |=  (1 << 10 | mask << 11);
 }
+
+#define ROWSTRIDE_2COL 4
+#define ROWSTRIDE 4
 
 #endif /*ndef ALIGNER_SWSSE_H_*/
