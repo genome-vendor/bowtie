@@ -41,19 +41,19 @@ using namespace std;
 // Helpers for printing verbose messages
 
 #ifndef VMSG_NL
-#define VMSG_NL(args...) \
+#define VMSG_NL(...) \
 if(this->verbose()) { \
 	stringstream tmp; \
-	tmp << args << endl; \
+	tmp << __VA_ARGS__ << endl; \
 	this->verbose(tmp.str()); \
 }
 #endif
 
 #ifndef VMSG
-#define VMSG(args...) \
+#define VMSG(...) \
 if(this->verbose()) { \
 	stringstream tmp; \
-	tmp << args; \
+	tmp << __VA_ARGS__; \
 	this->verbose(tmp.str()); \
 }
 #endif
@@ -893,10 +893,10 @@ void KarkkainenBlockwiseSA<TStr>::nextBlock() {
 				try {
 					bucket.push_back(i);
 				} catch(bad_alloc &e) {
+					cerr << "Could not append element to block of " << ((bucket.size()) * 4) << " bytes" << endl;
 					if(this->_passMemExc) {
 						throw e; // rethrow immediately
 					} else {
-						cerr << "Could not append element to block of " << ((bucket.size()) * 4) << " bytes" << endl;
 						cerr << "Please try using a larger number of blocks by specifying a smaller --bmax or" << endl
 						     << "a larger --bmaxdivn" << endl;
 						throw 1;

@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 PRG=bowtie
-VER=2.0.0-beta7
+VER=2.0.2
 BIN_LIST=bowtie2 \
          bowtie2-*
 PKG=$(PRG)$(VER)

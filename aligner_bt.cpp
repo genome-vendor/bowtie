@@ -123,7 +123,7 @@ void BtBranchTracer::triangleFill(
 		int64_t rowc = row - doff;
 		int64_t colc = col;
 		size_t neval = 0; // # cells evaluated in this diag
-		const CpQuad *last = NULL;
+		ASSERT_ONLY(const CpQuad *last = NULL);
 		// Fill this diagonal from upper right to lower left
 		for(size_t j = 0; j < breadth; j++) {
 			if(rowc >= rowmin && rowc <= rowmax &&
@@ -288,7 +288,7 @@ void BtBranchTracer::triangleFill(
 				curc->sc[2] = sc_f_best;
 				curc->sc[3] = mask;
 				// cerr << curc->sc[0] << " " << curc->sc[1] << " " << curc->sc[2] << " " << curc->sc[3] << endl;
-				last = curc;
+				ASSERT_ONLY(last = curc);
 #ifndef NDEBUG
 				if(prob_.cper_->isCheckpointed(rowc, colc)) {
 					if(local) {
@@ -334,7 +334,7 @@ void BtBranchTracer::triangleFill(
 		CHECK_ROW_COL(rowc, colc);
 		curid = bs_.alloc();
 		assert_eq(0, curid);
-		Edit e; e.reset();
+		Edit e;
 		bs_[curid].init(
 			prob_,
 			0,      // parent ID
@@ -880,7 +880,7 @@ void BtBranchTracer::squareFill(
 		CHECK_ROW_COL(rowc, colc);
 		curid = bs_.alloc();
 		assert_eq(0, curid);
-		Edit e; e.reset();
+		Edit e;
 		bs_[curid].init(
 			prob_,
 			0,      // parent ID
@@ -1262,7 +1262,7 @@ void BtBranchTracer::addOffshoots(size_t bid) {
 				assert_gt(rdgapPen, 0);
 				if(cp && prob_.cper_->isCheckpointed(row, col - 1)) {
 					// Possibly prune
-					int16_t cpsc = prob_.cper_->scoreTriangle(row, col - 1, 0);
+					int16_t cpsc = (int16_t)prob_.cper_->scoreTriangle(row, col - 1, 0);
 					assert_leq(cpsc, perfectScore);
 					assert_geq(prob_.sc_->readGapOpen(), prob_.sc_->readGapExtend());
 					TAlScore bonus = prob_.sc_->readGapOpen() - prob_.sc_->readGapExtend();
@@ -1290,7 +1290,7 @@ void BtBranchTracer::addOffshoots(size_t bid) {
 				assert_gt(rfgapPen, 0);
 				if(cp && prob_.cper_->isCheckpointed(row - 1, col)) {
 					// Possibly prune
-					int16_t cpsc = prob_.cper_->scoreTriangle(row - 1, col, 0);
+					int16_t cpsc = (int16_t)prob_.cper_->scoreTriangle(row - 1, col, 0);
 					assert_leq(cpsc, perfectScore);
 					assert_geq(prob_.sc_->refGapOpen(), prob_.sc_->refGapExtend());
 					TAlScore bonus = prob_.sc_->refGapOpen() - prob_.sc_->refGapExtend();

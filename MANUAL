@@ -122,13 +122,12 @@ supported in future versions.
 [BLAT]:   http://genome.ucsc.edu/cgi-bin/hgBlat?command=start
 [Vmatch]: http://www.vmatch.de/
 
-What does it mean that Bowtie 2 is "beta"?
-------------------------------------------
+What does it mean that some older Bowtie 2 versions are "beta"?
+--------------------------------------------------------------
 
-We say Bowtie 2 is in "beta" to convey that it is not as polished as a tool that
-has been around for a while, and it's still in flux. Features, file formats, and
-performance characteristics (speed, sensitivity, and accuracy) may change from
-release to release until the "beta" disgnation is removed.
+We said those Bowtie 2 versions were in "beta" to convey that it was not as
+polished as a tool that had been around for a while, and was still in flux.
+Since version 2.0.1, we declared Bowtie 2 was no longer "beta".
 
 Obtaining Bowtie 2
 ==================
@@ -566,6 +565,31 @@ Some tools are designed with this reporting mode in mind.  Bowtie 2 is not!  For
 very large genomes, this mode is very slow.
 
 [SAM specification]: http://samtools.sourceforge.net/SAM1.pdf
+
+### Randomness in Bowtie 2
+
+Bowtie 2's search for alignments for a given read is "randomized."  That is,
+when Bowtie 2 encouters a set of equally-good choices, it uses a pseudo-random
+number to choose.  For example, if Bowtie 2 discovers a set of 3 equally-good
+alignments and wants to decide which to report, it picks a pseudo-random integer
+0, 1 or 2 and reports the corresponding alignment.  Abitrary choices can crop up
+at various points during alignment.
+
+The pseudo-random number generator is re-initialized for every read, and the
+seed used to initialize it is a function of the read name, nucleotide string,
+quality string, and the value specified with `--seed`.  If you run the same
+version of Bowtie 2 on two reads with identical names, nucleotide strings, and
+quality strings, and if `--seed` is set the same for both runs, Bowtie 2 will
+produce the same output; i.e., it will align the read to the same place, even if
+there are multiple equally good alignments.  This is intuitive and desirable in
+most cases.  Most users expect Bowtie to produce the same output when run twice
+on the same input.
+
+However, when the user specifies the `--non-deterministic` option, Bowtie 2
+will use the current time to re-intiailize the pseud-random number generator.
+When this is specified, Bowtie 2 might report different alignments for identical
+reads.  This is counter-intuitive for some users, but might be more appropriate
+in situations where the input consists of many identical reads.
 
 Multiseed heuristic
 -------------------
@@ -1182,7 +1206,11 @@ This is printed to the "standard error" ("stderr") filehandle.  Default: off.
 Write unpaired reads that fail to align to file at `<path>`.  These reads
 correspond to the SAM records with the FLAGS `0x4` bit set and neither the
 `0x40` nor `0x80` bits set.  If `--un-gz` is specified, output will be gzip
-compressed. If `--un-bz2` is specified, output will be bzip2 compressed.
+compressed. If `--un-bz2` is specified, output will be bzip2 compressed.  Reads
+written in this way will appear exactly as they did in the input file, without
+any modification (same sequence, same name, same quality string, same quality
+encoding).  Reads will not necessarily appear in the same order as they did in
+the input.
 
     --al <path>
     --al-gz <path>
@@ -1191,7 +1219,10 @@ compressed. If `--un-bz2` is specified, output will be bzip2 compressed.
 Write unpaired reads that align at least once to file at `<path>`.  These reads
 correspond to the SAM records with the FLAGS `0x4`, `0x40`, and `0x80` bits
 unset.  If `--al-gz` is specified, output will be gzip compressed. If `--al-bz2`
-is specified, output will be bzip2 compressed.
+is specified, output will be bzip2 compressed.  Reads written in this way will
+appear exactly as they did in the input file, without any modification (same
+sequence, same name, same quality string, same quality encoding).  Reads will
+not necessarily appear in the same order as they did in the input.
 
     --un-conc <path>
     --un-conc-gz <path>
@@ -1204,7 +1235,10 @@ either the `0x40` or `0x80` bit set (depending on whether it's mate #1 or #2).
 contains mate #1 and mate #2.  If a percent symbol, `%`, is used in `<path>`,
 the percent symbol is replaced with `1` or `2` to make the per-mate filenames.
 Otherwise, `.1` or `.2` are added before the final dot in `<path>` to make the
-per-mate filenames.
+per-mate filenames.  Reads written in this way will appear exactly as they did
+in the input files, without any modification (same sequence, same name, same
+quality string, same quality encoding).  Reads will not necessarily appear in
+the same order as they did in the inputs.
 
     --al-conc <path>
     --al-conc-gz <path>
@@ -1217,7 +1251,10 @@ or #2). `.1` and `.2` strings are added to the filename to distinguish which
 file contains mate #1 and mate #2.  If a percent symbol, `%`, is used in
 `<path>`, the percent symbol is replaced with `1` or `2` to make the per-mate
 filenames. Otherwise, `.1` or `.2` are added before the final dot in `<path>` to
-make the per-mate filenames.
+make the per-mate filenames.  Reads written in this way will appear exactly as
+they did in the input files, without any modification (same sequence, same name,
+same quality string, same quality encoding).  Reads will not necessarily appear
+in the same order as they did in the inputs.
 
     --quiet
 
@@ -1270,6 +1307,12 @@ must also be specified.  This is because the `ID` tag is required by the [SAM
 Spec][SAM].  Specify `--rg` multiple times to set multiple fields.  See the
 [SAM Spec][SAM] for details about what fields are legal.
 
+    --omit-sec-seq
+
+When printing secondary alignments, Bowtie 2 by default will write out the `SEQ`
+and `QUAL` strings.  Specifying this option causes Bowtie 2 to print an asterix
+in those fields instead.
+
 #### Performance options
 
     -o/--offrate <int>
@@ -1319,6 +1362,20 @@ effect when read format is `--qseq`.  Default: off.
     --seed <int>
 
 Use `<int>` as the seed for pseudo-random number generator.  Default: 0.
+
+    --non-deterministic
+
+Normally, Bowtie 2 re-initializes its pseudo-random generator for each read.  It
+seeds the generator with a number derived from (a) the read name, (b) the
+nucleotide sequence, (c) the quality sequence, (d) the value of the `--seed`
+option.  This means that if two reads are identical (same name, same
+nucleotides, same qualities) Bowtie 2 will find and report the same alignment(s)
+for both, even if there was ambiguity.  When `--non-deterministic` is specified,
+Bowtie 2 re-initializes its pseudo-random generator for each read using the
+current time.  This means that Bowtie 2 will not necessarily report the same
+alignment for two identical reads.  This is counter-intuitive for some users,
+but might be more appropriate in situations where the input consists of many
+identical reads.
 
     --version
 
@@ -1788,14 +1845,14 @@ You will see something like this:
 
     @HD	VN:1.0	SO:unsorted
     @SQ	SN:gi|9626243|ref|NC_001416.1|	LN:48502
-    @PG	ID:bowtie2	PN:bowtie2	VN:2.0.0-beta2
-    r1	0	gi|9626243|ref|NC_001416.1|	18401	37	122M	*	0	0	TGAATGCGAACTCCGGGACGCTCAGTAATGTGACGATAGCTGAAAACTGTACGATAAACNGTACGCTGAGGGCAGAAAAAATCGTCGGGGACATTNTAAAGGCGGCGAGCGCGGCTTTTCCG	+"@6<:27(F&5)9)"B:%B+A-%5A?2$HCB0B+0=D<7E/<.03#!.F77@6B==?C"7>;))%;,3-$.A06+<-1/@@?,26">=?*@'0;$:;??G+:#+(A?9+10!8!?()?7C>	AS:i:-5	XN:i:0	XM:i:3	XO:i:0	XG:i:0	NM:i:3	MD:Z:59G13G21G26	YT:Z:UU
-    r2	0	gi|9626243|ref|NC_001416.1|	8886	37	275M	*	0	0	NTTNTGATGCGGGCTTGTGGAGTTCAGCCGATCTGACTTATGTCATTACCTATGAAATGTGAGGACGCTATGCCTGTACCAAATCCTACAATGCCGGTGAAAGGTGCCGGGATCACCCTGTGGGTTTATAAGGGGATCGGTGACCCCTACGCGAATCCGCTTTCAGACGTTGACTGGTCGCGTCTGGCAAAAGTTAAAGACCTGACGCCCGGCGAACTGACCGCTGAGNCCTATGACGACAGCTATCTCGATGATGAAGATGCAGACTGGACTGC	'%)%!+!(&++)''"#"#&#"!'!("%'""("+&%$%*%%#$%#%#!)*'(($&$'&%+&#%*)*#*%*')(%+!%%*"$%"#+)$&&+)&)*+!"*)!*!("&&"*#+"&"'(%)*("'!$*!!%$&&&$!!&&"(*"$&"#&!$%'%"#)$#+%*+)!&*)+(""#!)!%*#"*)*')&")($+*%%)!*)!('(%""+%"$##"#+(('!*(($*'!"*('"+)&%#&$+('**$$&+*&!#%)')'(+(!%+	AS:i:-9	XN:i:0	XM:i:8	XO:i:0	XG:i:0	NM:i:8	MD:Z:0A0C0G0A108C23G9T81T46	YT:Z:UU
-    r3	16	gi|9626243|ref|NC_001416.1|	11599	37	338M	*	0	0	GGGCGCGTTACTGGGATGATCGTGAAAAGGCCCGTCTTGCGCTTGAAGCCGCCCGAAAGAAGGCTGAGCAGCAGACTCAAGAGGAGAAAAATGCGCAGCAGCGGAGCGATACCGAAGCGTCACGGCTGAAATATACCGAAGAGGCGCAGAAGGCTNACGAACGGCTGCAGACGCCGCTGCAGAAATATACCGCCCGTCAGGAAGAACTGANCAAGGCACNGAAAGACGGGAAAATCCTGCAGGCGGATTACAACACGCTGATGGCGGCGGCGAAAAAGGATTATGAAGCGACGCTGTAAAAGCCGAAACAGTCCAGCGTGAAGGTGTCTGCGGGCGAT	7F$%6=$:9B@/F'>=?!D?@0(:A*)7/>9C>6#1<6:C(.CC;#.;>;2'$4D:?&B!>689?(0(G7+0=@37F)GG=>?958.D2E04C<E,*AD%G0.%$+A:'H;?8<72:88?E6((CF)6DF#.)=>B>D-="C'B080E'5BH"77':"@70#4%A5=6.2/1>;9"&-H6)=$/0;5E:<8G!@::1?2DC7C*;@*#.1C0.D>H/20,!"C-#,6@%<+<D(AG-).?&#0.00'@)/F8?B!&"170,)>:?<A7#1(A@0E#&A.*DC.E")AH"+.,5,2>5"2?:G,F"D0B8D-6$65D<D!A/38860.*4;4B<*31?6	AS:i:-22	XN:i:0	XM:i:8	XO:i:0	XG:i:0	NM:i:8	MD:Z:80C4C16A52T23G30A8T76A41	YT:Z:UU
-    r4	0	gi|9626243|ref|NC_001416.1|	40075	37	184M	*	0	0	GGGCCAATGCGCTTACTGATGCGGAATTACGCCGTAAGGCCGCAGATGAGCTTGTCCATATGACTGCGAGAATTAACNGTGGTGAGGCGATCCCTGAACCAGTAAAACAACTTCCTGTCATGGGCGGTAGACCTCTAAATCGTGCACAGGCTCTGGCGAAGATCGCAGAAATCAAAGCTAAGTT	(=8B)GD04*G%&4F,1'A>.C&7=F$,+#6!))43C,5/5+)?-/0>/D3=-,2/+.1?@->;)00!'3!7BH$G)HG+ADC'#-9F)7<7"$?&.>0)@5;4,!0-#C!15CF8&HB+B==H>7,/)C5)5*+(F5A%D,EA<(>G9E0>7&/E?4%;#'92)<5+@7:A.(BG@BG86@.G	AS:i:-1	XN:i:0	XM:i:1	XO:i:0	XG:i:0	NM:i:1	MD:Z:77C106	YT:Z:UU
-    r5	0	gi|9626243|ref|NC_001416.1|	48010	37	138M	*	0	0	GTCAGGAAAGTGGTAAAACTGCAACTCAATTACTGCAATGCCCTCGTAATTAAGTGAATTTACAATATCGTCCTGTTCGGAGGGAAGAACGCGGGATGTTCATTCTTCATCACTTTTAATTGATGTATATGCTCTCTT	9''%<D)A03E1-*7=),:F/0!6,D9:H,<9D%:0B(%'E,(8EFG$E89B$27G8F*2+4,-!,0D5()&=(FGG:5;3*@/.0F-G#5#3->('FDFEG?)5.!)"AGADB3?6(@H(:B<>6!>;>6>G,."?%	AS:i:0	XN:i:0	XM:i:0	XO:i:0	XG:i:0	NM:i:0	MD:Z:138	YT:Z:UU
-    r6	16	gi|9626243|ref|NC_001416.1|	41607	37	72M2D119M	*	0	0	TCGATTTGCAAATACCGGAACATCTCGGTAACTGCATATTCTGCATTAAAAAATCAACGCAAAAAATCGGACGCCTGCAAAGATGAGGAGGGATTGCAGCGTGTTTTTAATGAGGTCATCACGGGATNCCATGTGCGTGACGGNCATCGGGAAACGCCAAAGGAGATTATGTACCGAGGAAGAATGTCGCT	1H#G;H"$E*E#&"*)2%66?=9/9'=;4)4/>@%+5#@#$4A*!<D=="8#1*A9BA=:(1+#C&.#(3#H=9E)AC*5,AC#E'536*2?)H14?>9'B=7(3H/B:+A:8%1-+#(E%&$$&14"76D?>7(&20H5%*&CF8!G5B+A4F$7(:"'?0$?G+$)B-?2<0<F=D!38BH,%=8&5@+	AS:i:-13	XN:i:0	XM:i:2	XO:i:1	XG:i:2	NM:i:4	MD:Z:72^TT55C15A47	YT:Z:UU
-    r7	16	gi|9626243|ref|NC_001416.1|	4692	37	143M	*	0	0	TCAGCCGGACGCGGGCGCTGCAGCCGTACTCGGGGATGACCGGTTACAACGGCATTATCGCCCGTCTGCAACAGGCTGCCAGCGATCCGATGGTGGACAGCATTCTGCTCGATATGGACANGCCCGGCGGGATGGTGGCGGGG	-"/@*7A0)>2,AAH@&"%B)*5*23B/,)90.B@%=FE,E063C9?,:26$-0:,.,1849'4.;F>FA;76+5&$<C":$!A*,<B,<)@<'85D%C*:)30@85;?.B$05=@95DCDH<53!8G:F:B7/A.E':434>	AS:i:-7	XN:i:0	XM:i:2	XO:i:0	XG:i:0	NM:i:2	MD:Z:98G21C22	YT:Z:UU
+    @PG	ID:bowtie2	PN:bowtie2	VN:2.0.1
+    r1	0	gi|9626243|ref|NC_001416.1|	18401	42	122M	*	0	0	TGAATGCGAACTCCGGGACGCTCAGTAATGTGACGATAGCTGAAAACTGTACGATAAACNGTACGCTGAGGGCAGAAAAAATCGTCGGGGACATTNTAAAGGCGGCGAGCGCGGCTTTTCCG	+"@6<:27(F&5)9)"B:%B+A-%5A?2$HCB0B+0=D<7E/<.03#!.F77@6B==?C"7>;))%;,3-$.A06+<-1/@@?,26">=?*@'0;$:;??G+:#+(A?9+10!8!?()?7C>	AS:i:-5	XN:i:0	XM:i:3	XO:i:0	XG:i:0	NM:i:3	MD:Z:59G13G21G26	YT:Z:UU
+    r2	0	gi|9626243|ref|NC_001416.1|	8886	42	275M	*	0	0	NTTNTGATGCGGGCTTGTGGAGTTCAGCCGATCTGACTTATGTCATTACCTATGAAATGTGAGGACGCTATGCCTGTACCAAATCCTACAATGCCGGTGAAAGGTGCCGGGATCACCCTGTGGGTTTATAAGGGGATCGGTGACCCCTACGCGAATCCGCTTTCAGACGTTGACTGGTCGCGTCTGGCAAAAGTTAAAGACCTGACGCCCGGCGAACTGACCGCTGAGNCCTATGACGACAGCTATCTCGATGATGAAGATGCAGACTGGACTGC	'%)%!+!(&++)''"#"#&#"!'!("%'""("+&%$%*%%#$%#%#!)*'(($&$'&%+&#%*)*#*%*')(%+!%%*"$%"#+)$&&+)&)*+!"*)!*!("&&"*#+"&"'(%)*("'!$*!!%$&&&$!!&&"(*"$&"#&!$%'%"#)$#+%*+)!&*)+(""#!)!%*#"*)*')&")($+*%%)!*)!('(%""+%"$##"#+(('!*(($*'!"*('"+)&%#&$+('**$$&+*&!#%)')'(+(!%+	AS:i:-14	XN:i:0	XM:i:8	XO:i:0	XG:i:0	NM:i:8	MD:Z:0A0C0G0A108C23G9T81T46	YT:Z:UU
+    r3	16	gi|9626243|ref|NC_001416.1|	11599	42	338M	*	0	0	GGGCGCGTTACTGGGATGATCGTGAAAAGGCCCGTCTTGCGCTTGAAGCCGCCCGAAAGAAGGCTGAGCAGCAGACTCAAGAGGAGAAAAATGCGCAGCAGCGGAGCGATACCGAAGCGTCACGGCTGAAATATACCGAAGAGGCGCAGAAGGCTNACGAACGGCTGCAGACGCCGCTGCAGAAATATACCGCCCGTCAGGAAGAACTGANCAAGGCACNGAAAGACGGGAAAATCCTGCAGGCGGATTACAACACGCTGATGGCGGCGGCGAAAAAGGATTATGAAGCGACGCTGTAAAAGCCGAAACAGTCCAGCGTGAAGGTGTCTGCGGGCGAT	7F$%6=$:9B@/F'>=?!D?@0(:A*)7/>9C>6#1<6:C(.CC;#.;>;2'$4D:?&B!>689?(0(G7+0=@37F)GG=>?958.D2E04C<E,*AD%G0.%$+A:'H;?8<72:88?E6((CF)6DF#.)=>B>D-="C'B080E'5BH"77':"@70#4%A5=6.2/1>;9"&-H6)=$/0;5E:<8G!@::1?2DC7C*;@*#.1C0.D>H/20,!"C-#,6@%<+<D(AG-).?&#0.00'@)/F8?B!&"170,)>:?<A7#1(A@0E#&A.*DC.E")AH"+.,5,2>5"2?:G,F"D0B8D-6$65D<D!A/38860.*4;4B<*31?6	AS:i:-22	XN:i:0	XM:i:8	XO:i:0	XG:i:0	NM:i:8	MD:Z:80C4C16A52T23G30A8T76A41	YT:Z:UU
+    r4	0	gi|9626243|ref|NC_001416.1|	40075	42	184M	*	0	0	GGGCCAATGCGCTTACTGATGCGGAATTACGCCGTAAGGCCGCAGATGAGCTTGTCCATATGACTGCGAGAATTAACNGTGGTGAGGCGATCCCTGAACCAGTAAAACAACTTCCTGTCATGGGCGGTAGACCTCTAAATCGTGCACAGGCTCTGGCGAAGATCGCAGAAATCAAAGCTAAGT(=8B)GD04*G%&4F,1'A>.C&7=F$,+#6!))43C,5/5+)?-/0>/D3=-,2/+.1?@->;)00!'3!7BH$G)HG+ADC'#-9F)7<7"$?&.>0)@5;4,!0-#C!15CF8&HB+B==H>7,/)C5)5*+(F5A%D,EA<(>G9E0>7&/E?4%;#'92)<5+@7:A.(BG@BG86@.G	AS:i:-1	XN:i:0	XM:i:1	XO:i:0	XG:i:0	NM:i:1	MD:Z:77C106	YT:Z:UU
+    r5	0	gi|9626243|ref|NC_001416.1|	48010	42	138M	*	0	0	GTCAGGAAAGTGGTAAAACTGCAACTCAATTACTGCAATGCCCTCGTAATTAAGTGAATTTACAATATCGTCCTGTTCGGAGGGAAGAACGCGGGATGTTCATTCTTCATCACTTTTAATTGATGTATATGCTCTCTT	9''%<D)A03E1-*7=),:F/0!6,D9:H,<9D%:0B(%'E,(8EFG$E89B$27G8F*2+4,-!,0D5()&=(FGG:5;3*@/.0F-G#5#3->('FDFEG?)5.!)"AGADB3?6(@H(:B<>6!>;>6>G,."?%	AS:i:0	XN:i:0	XM:i:0	XO:i:0	XG:i:0	NM:i:0	MD:Z:138	YT:Z:UU
+    r6	16	gi|9626243|ref|NC_001416.1|	41607	42	72M2D119M	*	0	0	TCGATTTGCAAATACCGGAACATCTCGGTAACTGCATATTCTGCATTAAAAAATCAACGCAAAAAATCGGACGCCTGCAAAGATGAGGAGGGATTGCAGCGTGTTTTTAATGAGGTCATCACGGGATNCCATGTGCGTGACGGNCATCGGGAAACGCCAAAGGAGATTATGTACCGAGGAAGAATGTCGCT	1H#G;H"$E*E#&"*)2%66?=9/9'=;4)4/>@%+5#@#$4A*!<D=="8#1*A9BA=:(1+#C&.#(3#H=9E)AC*5,AC#E'536*2?)H14?>9'B=7(3H/B:+A:8%1-+#(E%&$$&14"76D?>7(&20H5%*&CF8!G5B+A4F$7(:"'?0$?G+$)B-?2<0<F=D!38BH,%=8&5@+	AS:i:-13	XN:i:0	XM:i:2	XO:i:1	XG:i:2	NM:i:4	MD:Z:72^TT55C15A47	YT:Z:UU
+    r7	16	gi|9626243|ref|NC_001416.1|	4692	42	143M	*	0	0	TCAGCCGGACGCGGGCGCTGCAGCCGTACTCGGGGATGACCGGTTACAACGGCATTATCGCCCGTCTGCAACAGGCTGCCAGCGATCCGATGGTGGACAGCATTCTGCTCGATATGGACANGCCCGGCGGGATGGTGGCGGGG	-"/@*7A0)>2,AAH@&"%B)*5*23B/,)90.B@%=FE,E063C9?,:26$-0:,.,1849'4.;F>FA;76+5&$<C":$!A*,<B,<)@<'85D%C*:)30@85;?.B$05=@95DCDH<53!8G:F:B7/A.E':434>	AS:i:-6	XN:i:0	XM:i:2	XO:i:0	XG:i:0	NM:i:2	MD:Z:98G21C22	YT:Z:UU
 
 The first few lines (beginning with `@`) are SAM header lines, and the rest of
 the lines are SAM alignments, one line per read or mate.  See the [Bowtie 2
@@ -1835,11 +1892,9 @@ variant calls in VCF format.  This example assumes that `samtools` and
 `bcftools` are installed and that the directories containing these binaries are
 in your [PATH environment variable].
 
-If you haven't already done so above, run the paired-end example.  Run it in the
-same directory where you ran the initial index-building step.  Here is the
-command again:
+Run the paired-end example:
 
-    $BT2_HOME/bowtie2 -x lambda_virus -1 $BT2_HOME/example/reads/reads_1.fq -2 $BT2_HOME/example/reads/reads_2.fq -S eg2.sam
+    $BT2_HOME/bowtie2 -x $BT2_HOME/example/index/lambda_virus -1 $BT2_HOME/example/reads/reads_1.fq -2 $BT2_HOME/example/reads/reads_2.fq -S eg2.sam
 
 Use `samtools view` to convert the SAM file into a BAM file.  BAM is a the
 binary format corresponding to the SAM text format.  Run:

@@ -1,8 +1,8 @@
-bowtie2.0.0-beta7 (2.0.0-beta7-1) lucid; urgency=low
+bowtie2.0.2 (2.0.2) lucid; urgency=low
 
   * Package latest upstream release
 
- -- Thomas Mooney <tmooney@genome.wustl.edu>  Tue, 24 Jul 2012 14:45:41 -0500
+ -- The Genome Institute <gmt@genome.wustl.edu>  Mon, 05 Nov 2012 14:45:41 -0500
 
 bowtie2.0.0-beta5 (2.0.0-beta5-5) lucid; urgency=low
 

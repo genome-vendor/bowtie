@@ -22,6 +22,7 @@
 
 #include <iostream>
 #include <stdint.h>
+#include <limits>
 #include "assert_helpers.h"
 #include "filebuf.h"
 #include "sstring.h"
@@ -39,8 +40,20 @@ enum {
 };
 
 /**
- * Encapsulates an edit between the read sequence and the reference
- * sequence.
+ * Encapsulates an edit between the read sequence and the reference sequence.
+ * We obey a few conventions when populating its fields.  The fields are:
+ *
+ * 	uint8_t  chr;  // reference character involved (for subst and ins)
+ *  uint8_t  qchr; // read character involved (for subst and del)
+ *  uint8_t  type; // 1 -> mm, 2 -> SNP, 3 -> ins, 4 -> del
+ *  uint32_t pos;  // position w/r/t search root
+ *
+ * One convention is that pos is always an offset w/r/t the 5' end of the read.
+ *
+ * Another is that chr and qchr are expressed in terms of the nucleotides on
+ * the forward version of the read.  So if we're aligning the reverse
+ * complement of the read, and an A in the reverse complement mismatches a C in
+ * the reference, chr should be G and qchr should be T.
  */
 struct Edit {
 
@@ -56,14 +69,24 @@ struct Edit {
 		init(po, ch, qc, ty, chrs);
 	}
 	
+    /**
+     * Reset Edit to uninitialized state.
+     */
 	void reset() {
-		pos = 0xffffffff;
+		pos = pos2 = std::numeric_limits<uint32_t>::max();
+		chr = qchr = type = 0;
 	}
 	
+    /**
+     * Return true iff the Edit is initialized.
+     */
 	bool inited() const {
-		return pos != 0xffffffff;
+		return pos != std::numeric_limits<uint32_t>::max();
 	}
 	
+    /**
+     * Initialize a new Edit.
+     */
 	void init(
 		uint32_t po,
 		int ch,
@@ -75,6 +98,7 @@ struct Edit {
 		qchr = qc;
 		type = ty;
 		pos = po;
+		pos2 = std::numeric_limits<uint32_t>::max() >> 1;
 		if(!chrs) {
 			assert_range(0, 4, (int)chr);
 			assert_range(0, 4, (int)qchr);
@@ -102,6 +126,8 @@ struct Edit {
 		assert(inited());
 		if(pos  < rhs.pos) return 1;
 		if(pos  > rhs.pos) return 0;
+		if(pos2 < rhs.pos2) return 1;
+		if(pos2 > rhs.pos2) return 0;
 		if(type < rhs.type) return 1;
 		if(type > rhs.type) return 0;
 		if(chr  < rhs.chr) return 1;
@@ -115,6 +141,7 @@ struct Edit {
 	int operator== (const Edit &rhs) const {
 		assert(inited());
 		return(pos  == rhs.pos &&
+			   pos2 == rhs.pos2 &&
 			   chr  == rhs.chr &&
 			   qchr == rhs.qchr &&
 			   type == rhs.type);
@@ -173,7 +200,15 @@ struct Edit {
 	 * Flip all the edits.pos fields so that they're with respect to
 	 * the other end of the read (of length 'sz').
 	 */
-	static void invertPoss(EList<Edit>& edits, size_t sz);
+	static void invertPoss(EList<Edit>& edits, size_t sz, size_t ei, size_t en);
+
+	/**
+	 * Flip all the edits.pos fields so that they're with respect to
+	 * the other end of the read (of length 'sz').
+	 */
+	static void invertPoss(EList<Edit>& edits, size_t sz) {
+		invertPoss(edits, sz, 0, edits.size());
+	}
 	
 	/**
 	 * Clip off some of the low-numbered positions.
@@ -259,6 +294,9 @@ struct Edit {
 	uint8_t  qchr; // read character involved (for subst and del)
 	uint8_t  type; // 1 -> mm, 2 -> SNP, 3 -> ins, 4 -> del
 	uint32_t pos;  // position w/r/t search root
+	uint32_t pos2; // Second int to take into account when sorting.  Useful for
+	               // sorting read gap edits that are all part of the same long
+				   // gap.
 
 	friend std::ostream& operator<< (std::ostream& os, const Edit& e);
 

@@ -2390,9 +2390,9 @@ public:
 			// Binary search
 			i = bsearchLoBound(el.first);
 		}
-		if(list_[i] == el) return false;
+		if(list_[i] == el) return false; // already there
 		insert(el, i);
-		return true;
+		return true; // not already there
 	}
 
 	/**
@@ -2402,6 +2402,25 @@ public:
 		if(cur_ == 0) return false;
 		else if(cur_ == 1) return el == list_[0].first;
 		size_t i;
+		if(cur_ < 16) {
+			// Linear scan
+			i = scanLoBound(el);
+		} else {
+			// Binary search
+			i = bsearchLoBound(el);
+		}
+		return i != cur_ && list_[i].first == el;
+	}
+
+	/**
+	 * Return true iff this set contains 'el'.
+	 */
+	bool containsEx(const K& el, size_t& i) const {
+		if(cur_ == 0) return false;
+		else if(cur_ == 1) {
+			i = 0;
+			return el == list_[0].first;
+		}
 		if(cur_ < 16) {
 			// Linear scan
 			i = scanLoBound(el);
@@ -2536,9 +2555,12 @@ private:
 	 */
 	bool sorted() const {
 		if(cur_ <= 1) return true;
+#ifndef NDEBUG
 		for(size_t i = 0; i < cur_-1; i++) {
+			assert(!(list_[i] == list_[i+1]));
 			assert(list_[i] < list_[i+1]);
 		}
+#endif
 		return true;
 	}
 
@@ -2548,11 +2570,14 @@ private:
 	 */
 	void insert(const std::pair<K, V>& el, size_t idx) {
 		assert_leq(idx, cur_);
-		if(cur_ == sz_) expandCopy(sz_+1);
+		if(cur_ == sz_) {
+			expandCopy(sz_+1);
+		}
 		for(size_t i = cur_; i > idx; i--) {
 			list_[i] = list_[i-1];
 		}
 		list_[idx] = el;
+		assert(idx == cur_ || list_[idx] < list_[idx+1]);
 		cur_++;
 		assert(sorted());
 	}
@@ -2578,6 +2603,9 @@ private:
 		size_t newsz = sz_ * 2;
 		while(newsz < thresh) newsz *= 2;
 		std::pair<K, V>* tmp = alloc(newsz);
+		for(size_t i = 0; i < cur_; i++) {
+			tmp[i] = list_[i];
+		}
 		free();
 		list_ = tmp;
 		sz_ = newsz;
@@ -2589,6 +2617,12 @@ private:
 	size_t cur_; // occupancy (AKA size)
 };
 
+/**
+ * A class that allows callers to create objects that are referred to by ID.
+ * Objects should not be referred to via pointers or references, since they
+ * are stored in an expandable buffer that might be resized and thereby moved
+ * to another address.
+ */
 template <typename T, int S = 128>
 class EFactory {
 
@@ -2598,35 +2632,184 @@ public:
 	
 	explicit EFactory(int cat = 0) : l_(cat) { }
 	
+	/**
+	 * Clear the list.
+	 */
 	void clear() {
 		l_.clear();
 	}
 	
+	/**
+	 * Add one additional item to the list and return its ID.
+	 */
 	size_t alloc() {
 		l_.expand();
 		return l_.size()-1;
 	}
 	
+	/**
+	 * Return the number of items in the list.
+	 */
 	size_t size() const {
 		return l_.size();
 	}
+    
+    /**
+     * Resize the list.
+     */
+    void resize(size_t sz) {
+        l_.resize(sz);
+    }
 
+	/**
+	 * Return true iff the list is empty.
+	 */
 	bool empty() const {
 		return size() == 0;
 	}
 	
-	T& pop() {
-		T& ret = l_[l_.size()-1];
+	/**
+	 * Shrink the list such that the  topmost (most recently allocated) element
+	 * is removed.
+	 */
+	void pop() {
 		l_.resize(l_.size()-1);
-		return ret;
 	}
 	
+	/**
+	 * Return mutable list item at offset 'off'
+	 */
 	T& operator[](size_t off) {
 		return l_[off];
 	}
 
+	/**
+	 * Return immutable list item at offset 'off'
+	 */
 	const T& operator[](size_t off) const {
 		return l_[off];
+	}
+
+protected:
+
+	EList<T, S> l_;
+};
+
+/**
+ * Implements a min-heap.
+ */
+template <typename T, int S = 128>
+class EHeap {
+public:
+
+	/**
+	 * Add the element to the next available leaf position and percolate up.
+	 */
+	void insert(T o) {
+		size_t pos = l_.size();
+		l_.push_back(o);
+		while(pos > 0) {
+			size_t parent = (pos-1) >> 1;
+			if(l_[pos] < l_[parent]) {
+				T tmp(l_[pos]);
+				l_[pos] = l_[parent];
+				l_[parent] = tmp;
+				pos = parent;
+			} else break;
+		}
+		assert(repOk());
+	}
+	
+	/**
+	 * Remove the topmost element.
+	 */
+	T pop() {
+		assert_gt(l_.size(), 0);
+		T ret = l_[0];
+		l_[0] = l_[l_.size()-1];
+		l_.resize(l_.size()-1);
+		size_t cur = 0;
+		while(true) {
+			size_t c1 = ((cur+1) << 1) - 1;
+			size_t c2 = c1 + 1;
+			if(c2 < l_.size()) {
+				if(l_[c1] < l_[cur] && l_[c1] <= l_[c2]) {
+					T tmp(l_[c1]);
+					l_[c1] = l_[cur];
+					l_[cur] = tmp;
+					cur = c1;
+				} else if(l_[c2] < l_[cur]) {
+					T tmp(l_[c2]);
+					l_[c2] = l_[cur];
+					l_[cur] = tmp;
+					cur = c2;
+				} else {
+					break;
+				}
+			} else if(c1 < l_.size()) {
+				if(l_[c1] < l_[cur]) {
+					T tmp(l_[c1]);
+					l_[c1] = l_[cur];
+					l_[cur] = tmp;
+					cur = c1;
+				} else {
+					break;
+				}
+			} else {
+				break;
+			}
+		}
+		assert(repOk());
+		return ret;
+	}
+	
+	/**
+	 * Return number of elements in the heap.
+	 */
+	size_t size() const {
+		return l_.size();
+	}
+	
+	/**
+	 * Return true when heap is empty.
+	 */
+	bool empty() const {
+		return l_.empty();
+	}
+	
+	/**
+	 * Check that heap property holds.
+	 */
+	bool repOk() const {
+		if(empty()) return true;
+		return repOkNode(0);
+	}
+
+	/**
+	 * Check that heap property holds at and below this node.
+	 */
+	bool repOkNode(size_t cur) const {
+        size_t c1 = ((cur+1) << 1) - 1;
+        size_t c2 = c1 + 1;
+		if(c1 < l_.size()) {
+			assert_leq(l_[cur], l_[c1]);
+		}
+		if(c2 < l_.size()) {
+			assert_leq(l_[cur], l_[c2]);
+		}
+		if(c2 < l_.size()) {
+			return repOkNode(c1) && repOkNode(c2);
+		} else if(c1 < l_.size()) {
+			return repOkNode(c1);
+		}
+		return true;
+	}
+	
+	/**
+	 * Clear the heap so that it's empty.
+	 */
+	void clear() {
+		l_.clear();
 	}
 
 protected:
@@ -3607,11 +3790,104 @@ struct DoublyLinkedList {
 	DoublyLinkedList<T> *next;
 };
 
+template <typename T1, typename T2>
+struct Pair {
+	T1 a;
+	T2 b;
+
+	Pair() : a(), b() { }
+	
+	Pair(
+		const T1& a_,
+		const T2& b_) { a = a_; b = b_; }
+
+	bool operator==(const Pair& o) const {
+		return a == o.a && b == o.b;
+	}
+	
+	bool operator<(const Pair& o) const {
+		if(a < o.a) return true;
+		if(a > o.a) return false;
+		if(b < o.b) return true;
+		return false;
+	}
+};
+
 template <typename T1, typename T2, typename T3>
 struct Triple {
-	T1 first;
-	T2 second;
-	T3 third;
+	T1 a;
+	T2 b;
+	T3 c;
+
+	Triple() : a(), b(), c() { }
+
+	Triple(
+		const T1& a_,
+		const T2& b_,
+		const T3& c_) { a = a_; b = b_; c = c_; }
+
+	bool operator==(const Triple& o) const {
+		return a == o.a && b == o.b && c == o.c;
+	}
+	
+	bool operator<(const Triple& o) const {
+		if(a < o.a) return true;
+		if(a > o.a) return false;
+		if(b < o.b) return true;
+		if(b > o.b) return false;
+		if(c < o.c) return true;
+		return false;
+	}
+};
+
+template <typename T1, typename T2, typename T3, typename T4>
+struct Quad {
+
+	Quad() : a(), b(), c(), d() { }
+
+	Quad(
+		const T1& a_,
+		const T2& b_,
+		const T3& c_,
+		const T4& d_) { a = a_; b = b_; c = c_; d = d_; }
+
+	Quad(
+		const T1& a_,
+		const T1& b_,
+		const T1& c_,
+		const T1& d_)
+	{
+		init(a_, b_, c_, d_);
+	}
+	
+	void init(
+		const T1& a_,
+		const T1& b_,
+		const T1& c_,
+		const T1& d_)
+	{
+		a = a_; b = b_; c = c_; d = d_;
+	}
+
+	bool operator==(const Quad& o) const {
+		return a == o.a && b == o.b && c == o.c && d == o.d;
+	}
+	
+	bool operator<(const Quad& o) const {
+		if(a < o.a) return true;
+		if(a > o.a) return false;
+		if(b < o.b) return true;
+		if(b > o.b) return false;
+		if(c < o.c) return true;
+		if(c > o.c) return false;
+		if(d < o.d) return true;
+		return false;
+	}
+
+	T1 a;
+	T2 b;
+	T3 c;
+	T4 d;
 };
 
 #endif /* DS_H_ */
