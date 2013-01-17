@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -36,11 +36,10 @@ using namespace std;
  */
 PatternSource* PatternSource::patsrcFromStrings(
 	const PatternParams& p,
-	const EList<string>& qs,
-	const EList<string>* qualities)
+	const EList<string>& qs)
 {
 	switch(p.format) {
-		case FASTA:       return new FastaPatternSource(qs, qualities, p);
+		case FASTA:       return new FastaPatternSource(qs, p);
 		case FASTA_CONT:  return new FastaContinuousPatternSource(qs, p);
 		case RAW:         return new RawPatternSource(qs, p);
 		case FASTQ:       return new FastqPatternSource(qs, p);
@@ -208,7 +207,12 @@ bool PairedDualPatternSource::nextReadPair(
 	bool fixName)
 {
 	// 'cur' indexes the current pair of PatternSources
-	uint32_t cur = cur_;
+	uint32_t cur;
+	{
+		lock();
+		cur = cur_;
+		unlock();
+	}
 	success = false;
 	done = true;
 	while(cur < srca_->size()) {
@@ -246,16 +250,22 @@ bool PairedDualPatternSource::nextReadPair(
 			do {
 				(*srcb_)[cur]->nextRead(rb, rdid_b, endid_b, success_b, done_b);
 			} while(!success_b && !done_b);
-			assert_eq(rdid_a, rdid_b);
-			//assert_eq(endid_a+1, endid_b);
-			assert_eq(success_a, success_b);
-			if(!success_a) {
+			if(!success_a && success_b) {
+				cerr << "Error, fewer reads in file specified with -1 than in file specified with -2" << endl;
+				throw 1;
+			} else if(!success_a) {
 				assert(done_a && done_b);
 				if(cur + 1 > cur_) cur_++;
 				cur = cur_; // Move on to next PatternSource
 				unlock();
 				continue; // on to next pair of PatternSources
+			} else if(!success_b) {
+				cerr << "Error, fewer reads in file specified with -2 than in file specified with -1" << endl;
+				throw 1;
 			}
+			assert_eq(rdid_a, rdid_b);
+			//assert_eq(endid_a+1, endid_b);
+			assert_eq(success_a, success_b);
 			unlock();
 			if(fixName) {
 				ra.fixMateName(1);
@@ -325,7 +335,7 @@ PairedPatternSource* PairedPatternSource::setupPatternSources(
 			tmp.push_back(m12[i]);
 			assert_eq(1, tmp.size());
 		}
-		ab->push_back(PatternSource::patsrcFromStrings(p, *qs, NULL));
+		ab->push_back(PatternSource::patsrcFromStrings(p, *qs));
 		if(!p.fileParallel) {
 			break;
 		}
@@ -334,19 +344,15 @@ PairedPatternSource* PairedPatternSource::setupPatternSources(
 	// Create list of pattern sources for paired reads
 	for(size_t i = 0; i < m1.size(); i++) {
 		const EList<string>* qs = &m1;
-		const EList<string>* quals = &q1;
 		EList<string> tmpSeq;
 		EList<string> tmpQual;
 		if(p.fileParallel) {
 			// Feed query files one to each PatternSource
 			qs = &tmpSeq;
 			tmpSeq.push_back(m1[i]);
-			quals = &tmpSeq;
-			tmpQual.push_back(q1[i]);
 			assert_eq(1, tmpSeq.size());
 		}
-		if(quals->empty()) quals = NULL;
-		a->push_back(PatternSource::patsrcFromStrings(p, *qs, quals));
+		a->push_back(PatternSource::patsrcFromStrings(p, *qs));
 		if(!p.fileParallel) {
 			break;
 		}
@@ -355,19 +361,15 @@ PairedPatternSource* PairedPatternSource::setupPatternSources(
 	// Create list of pattern sources for paired reads
 	for(size_t i = 0; i < m2.size(); i++) {
 		const EList<string>* qs = &m2;
-		const EList<string>* quals = &q2;
 		EList<string> tmpSeq;
 		EList<string> tmpQual;
 		if(p.fileParallel) {
 			// Feed query files one to each PatternSource
 			qs = &tmpSeq;
 			tmpSeq.push_back(m2[i]);
-			quals = &tmpQual;
-			tmpQual.push_back(q2[i]);
 			assert_eq(1, tmpSeq.size());
 		}
-		if(quals->empty()) quals = NULL;
-		b->push_back(PatternSource::patsrcFromStrings(p, *qs, quals));
+		b->push_back(PatternSource::patsrcFromStrings(p, *qs));
 		if(!p.fileParallel) {
 			break;
 		}
@@ -378,7 +380,6 @@ PairedPatternSource* PairedPatternSource::setupPatternSources(
 	// Create list of pattern sources for the unpaired reads
 	for(size_t i = 0; i < si.size(); i++) {
 		const EList<string>* qs = &si;
-		const EList<string>* quals = &q;
 		PatternSource* patsrc = NULL;
 		EList<string> tmpSeq;
 		EList<string> tmpQual;
@@ -386,12 +387,9 @@ PairedPatternSource* PairedPatternSource::setupPatternSources(
 			// Feed query files one to each PatternSource
 			qs = &tmpSeq;
 			tmpSeq.push_back(si[i]);
-			quals = &tmpQual;
-			tmpQual.push_back(q[i]);
 			assert_eq(1, tmpSeq.size());
 		}
-		if(quals->empty()) quals = NULL;
-		patsrc = PatternSource::patsrcFromStrings(p, *qs, quals);
+		patsrc = PatternSource::patsrcFromStrings(p, *qs);
 		assert(patsrc != NULL);
 		a->push_back(patsrc);
 		b->push_back(NULL);
@@ -692,10 +690,8 @@ bool FastaPatternSource::read(
 	bool& done)
 {
 	int c, qc = 0;
-	bool doquals = qinfiles_.size() > 0;
 	success = true;
 	done = false;
-	assert(!doquals || qfb_.isOpen());
 	assert(fb_.isOpen());
 	r.reset();
 	r.color = gColor;
@@ -712,18 +708,6 @@ bool FastaPatternSource::read(
 		c = fb_.get();
 	}
 	assert_eq(1, fb_.lastNLen());
-	if(doquals) {
-		qc = qfb_.get();
-		if(qc < 0) {
-			bail(r); success = false; done = true; return success;
-		}
-		while(qc == '#' || qc == ';' || qc == '\r' || qc == '\n') {
-			qc = qfb_.peekUptoNewline();
-			qfb_.resetLastN();
-			qc = qfb_.get();
-		}
-		assert_eq(1, qfb_.lastNLen());
-	}
 
 	// Pick off the first carat
 	if(first_) {
@@ -731,16 +715,10 @@ bool FastaPatternSource::read(
 			cerr << "Error: reads file does not look like a FASTA file" << endl;
 			throw 1;
 		}
-		if(doquals && qc != '>') {
-			cerr << "Error: quality file does not look like a FASTA quality file" << endl;
-			throw 1;
-		}
 		first_ = false;
 	}
 	assert_eq('>', c);
-	assert(!doquals || '>' == qc);
 	c = fb_.get(); // get next char after '>'
-	if(doquals) qc = qfb_.get();
 
 	// Read to the end of the id line, sticking everything after the '>'
 	// into *name
@@ -752,25 +730,16 @@ bool FastaPatternSource::read(
 		if(c == '\n' || c == '\r') {
 			// Break at end of line, after consuming all \r's, \n's
 			while(c == '\n' || c == '\r') {
-				if(doquals && c != qc) {
-					cerr << "Warning: one or more mismatched read names between FASTA and quality files" << endl;
-					//warning = true;
-				}
 				if(fb_.peek() == '>') {
 					// Empty sequence
 					break;
 				}
 				c = fb_.get();
-				if(doquals) qc = qfb_.get();
 				if(c < 0 || qc < 0) {
 					bail(r); success = false; done = true; return success;
 				}
 			}
 			break;
-		}
-		if(doquals && c != qc) {
-			cerr << "Warning: one or more mismatched read names between FASTA and quality files" << endl;
-			//warning = true;
 		}
 		r.name.append(c);
 		if(fb_.peek() == '>') {
@@ -778,7 +747,6 @@ bool FastaPatternSource::read(
 			break;
 		}
 		c = fb_.get();
-		if(doquals) qc = qfb_.get();
 	}
 	if(c == '>') {
 		// Empty sequences!
@@ -826,11 +794,6 @@ bool FastaPatternSource::read(
 	r.qual.trimEnd(gTrim3);
 	r.trimmed3 = gTrim3;
 	r.trimmed5 = mytrim5;
-	if(doquals) {
-		parseQuals(r, qfb_, qc, (int)(r.patFw.length() + r.trimmed3 + r.trimmed5),
-				   r.trimmed3, r.trimmed5, intQuals_, phred64_,
-				   solexa64_);
-	}
 	// Set up a default name if one hasn't been set
 	if(r.name.empty()) {
 		char cbuf[20];
@@ -840,20 +803,6 @@ bool FastaPatternSource::read(
 	assert_gt(r.name.length(), 0);
 	r.readOrigBuf.install(fb_.lastN(), fb_.lastNLen());
 	fb_.resetLastN();
-	if(doquals) {
-		r.qualOrigBuf.install(qfb_.lastN(), qfb_.lastNLen());
-		qfb_.resetLastN();
-		if(false) {
-			cout << "Name: " << r.name << endl
-				 << " Seq: " << r.patFw << " (" << r.patFw.length() << ")" << endl
-				 << "Qual: " << r.qual  << " (" << r.qual.length() << ")" << endl
-				 << "Orig seq:" << endl;
-			cout << r.readOrigBuf.toZBuf();
-			cout << "Orig qual:" << endl;
-			cout << r.qualOrigBuf.toZBuf();
-			cout << endl;
-		}
-	}
 	return success;
 }
 
@@ -1493,8 +1442,10 @@ int TabbedPatternSource::parseQuals(
 				break;
 			}
 		}
-		if(qualsRead != dstLen + trim5) {
-			assert(false);
+		if(qualsRead < dstLen + trim5) {
+			tooFewQualities(r.name);
+		} else if(qualsRead > dstLen + trim5) {
+			tooManyQualities(r.name);
 		}
 	}
 	r.qual.resize(dstLen);

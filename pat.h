@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -162,7 +162,9 @@ public:
 	 * whether locks will be contended.
 	 */
 	void addWrapper() {
+		lock();
 		numWrappers_++;
+		unlock();
 	}
 	
 	/**
@@ -268,8 +270,7 @@ public:
 	 */
 	static PatternSource* patsrcFromStrings(
 		const PatternParams& p,
-		const EList<string>& qs,
-		const EList<string>* qualities);
+		const EList<string>& qs);
 
 	/**
 	 * Return the number of reads attempted.
@@ -790,40 +791,24 @@ class BufferedFilePatternSource : public PatternSource {
 public:
 	BufferedFilePatternSource(
 		const EList<string>& infiles,
-		const EList<string>* qinfiles,
 		const PatternParams& p) :
 		PatternSource(p),
 		infiles_(infiles),
 		filecur_(0),
 		fb_(),
-		qfb_(),
 		skip_(p.skip),
 		first_(true)
 	{
-		qinfiles_.clear();
-		if(qinfiles != NULL) qinfiles_ = *qinfiles;
 		assert_gt(infiles.size(), 0);
 		errs_.resize(infiles_.size());
 		errs_.fill(0, infiles_.size(), false);
-		if(qinfiles_.size() > 0 &&
-		   qinfiles_.size() != infiles_.size())
-		{
-			cerr << "Error: Different numbers of input FASTA/quality files ("
-			     << infiles_.size() << "/" << qinfiles_.size() << ")" << endl;
-			throw 1;
-		}
 		assert(!fb_.isOpen());
-		assert(!qfb_.isOpen());
 		open(); // open first file in the list
 		filecur_++;
 	}
 
 	virtual ~BufferedFilePatternSource() {
 		if(fb_.isOpen()) fb_.close();
-		if(qfb_.isOpen()) {
-			assert_gt(qinfiles_.size(), 0);
-			qfb_.close();
-		}
 	}
 
 	/**
@@ -930,7 +915,6 @@ protected:
 	
 	void open() {
 		if(fb_.isOpen()) fb_.close();
-		if(qfb_.isOpen()) qfb_.close();
 		while(filecur_ < infiles_.size()) {
 			// Open read
 			FILE *in;
@@ -938,39 +922,24 @@ protected:
 				in = stdin;
 			} else if((in = fopen(infiles_[filecur_].c_str(), "rb")) == NULL) {
 				if(!errs_[filecur_]) {
-					cerr << "Warning: Could not open read file \"" << infiles_[filecur_] << "\" for reading; skipping..." << endl;
+					cerr << "Warning: Could not open read file \"" << infiles_[filecur_].c_str() << "\" for reading; skipping..." << endl;
 					errs_[filecur_] = true;
 				}
 				filecur_++;
 				continue;
 			}
 			fb_.newFile(in);
-			// Open quality
-			if(!qinfiles_.empty()) {
-				FILE *in;
-				if(qinfiles_[filecur_] == "-") {
-					in = stdin;
-				} else if((in = fopen(qinfiles_[filecur_].c_str(), "rb")) == NULL) {
-					if(!errs_[filecur_]) {
-						cerr << "Warning: Could not open quality file \"" << qinfiles_[filecur_] << "\" for reading; skipping..." << endl;
-						errs_[filecur_] = true;
-					}
-					filecur_++;
-					continue;
-				}
-				qfb_.newFile(in);
-			}
 			return;
 		}
-		throw 1;
+		cerr << "Error: No input read files were valid" << endl;
+		exit(1);
+		return;
 	}
 	
 	EList<string> infiles_;  // filenames for read files
-	EList<string> qinfiles_; // filenames for quality files
 	EList<bool> errs_;       // whether we've already printed an error for each file
 	size_t filecur_;         // index into infiles_ of next file to read
 	FileBuf fb_;             // read file currently being read from
-	FileBuf qfb_;            // quality file currently being read from
 	TReadId skip_;           // number of reads to skip
 	bool first_;
 };
@@ -1000,9 +969,8 @@ int parseQuals(
 class FastaPatternSource : public BufferedFilePatternSource {
 public:
 	FastaPatternSource(const EList<string>& infiles,
-	                   const EList<string>* qinfiles,
 	                   const PatternParams& p) :
-		BufferedFilePatternSource(infiles, qinfiles, p),
+		BufferedFilePatternSource(infiles, p),
 		first_(true), solexa64_(p.solexa64), phred64_(p.phred64), intQuals_(p.intQuals)
 	{ }
 	virtual void reset() {
@@ -1026,7 +994,6 @@ protected:
 	void bail(Read& r) {
 		r.reset();
 		fb_.resetLastN();
-		qfb_.resetLastN();
 	}
 
 	/// Read another pattern from a FASTA input file
@@ -1094,7 +1061,7 @@ public:
 		const EList<string>& infiles,
 		const PatternParams& p,
 		bool  secondName) :
-		BufferedFilePatternSource(infiles, NULL, p),
+		BufferedFilePatternSource(infiles, p),
 		solQuals_(p.solexa64),
 		phred64Quals_(p.phred64),
 		intQuals_(p.intQuals),
@@ -1180,7 +1147,7 @@ public:
 	QseqPatternSource(
 		const EList<string>& infiles,
 	    const PatternParams& p) :
-		BufferedFilePatternSource(infiles, NULL, p),
+		BufferedFilePatternSource(infiles, p),
 		solQuals_(p.solexa64),
 		phred64Quals_(p.phred64),
 		intQuals_(p.intQuals) { }
@@ -1278,7 +1245,7 @@ protected:
 class FastaContinuousPatternSource : public BufferedFilePatternSource {
 public:
 	FastaContinuousPatternSource(const EList<string>& infiles, const PatternParams& p) :
-		BufferedFilePatternSource(infiles, NULL, p),
+		BufferedFilePatternSource(infiles, p),
 		length_(p.sampleLen), freq_(p.sampleFreq),
 		eat_(length_-1), beginning_(true),
 		bufCur_(0), subReadCnt_(0llu)
@@ -1426,7 +1393,7 @@ class FastqPatternSource : public BufferedFilePatternSource {
 public:
 
 	FastqPatternSource(const EList<string>& infiles, const PatternParams& p) :
-		BufferedFilePatternSource(infiles, NULL, p),
+		BufferedFilePatternSource(infiles, p),
 		first_(true),
 		solQuals_(p.solexa64),
 		phred64Quals_(p.phred64),
@@ -1544,7 +1511,7 @@ class RawPatternSource : public BufferedFilePatternSource {
 public:
 
 	RawPatternSource(const EList<string>& infiles, const PatternParams& p) :
-		BufferedFilePatternSource(infiles, NULL, p), first_(true) { }
+		BufferedFilePatternSource(infiles, p), first_(true) { }
 
 	virtual void reset() {
 		first_ = true;

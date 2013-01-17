@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -74,6 +74,7 @@ struct SwResult {
 		return alres.empty();
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that result is internally consistent.
 	 */
@@ -81,7 +82,7 @@ struct SwResult {
 		assert(alres.repOk());
 		return true;
 	}
-	
+
 	/**
 	 * Check that result is internally consistent w/r/t read.
 	 */
@@ -89,6 +90,7 @@ struct SwResult {
 		assert(alres.repOk(rd));
 		return true;
 	}
+#endif
 
 	AlnRes alres;
 	uint64_t sws;    // # DP problems solved

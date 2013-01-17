@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -25,8 +25,10 @@
 #include <utility>
 #include <stdint.h>
 #include <string.h>
+#include <limits>
 #include "assert_helpers.h"
 #include "threading.h"
+#include "random_source.h"
 
 /**
  * Tally how much memory is allocated to certain 
@@ -44,28 +46,12 @@ public:
 	/**
 	 * Tally a memory allocation of size amt bytes.
 	 */
-	void add(int cat, uint64_t amt) {
-		ThreadSafe ts(&lock_);
-		tots_[cat] += amt;
-		tot_ += amt;
-		if(tots_[cat] > peaks_[cat]) {
-			peaks_[cat] = tots_[cat];
-		}
-		if(tot_ > peak_) {
-			peak_ = tot_;
-		}
-	}
+	void add(int cat, uint64_t amt);
 
 	/**
 	 * Tally a memory free of size amt bytes.
 	 */
-	void del(int cat, uint64_t amt) {
-		ThreadSafe ts(&lock_);
-		assert_geq(tots_[cat], amt);
-		assert_geq(tot_, amt);
-		tots_[cat] -= amt;
-		tot_ -= amt;
-	}
+	void del(int cat, uint64_t amt);
 	
 	/**
 	 * Return the total amount of memory allocated.
@@ -88,7 +74,8 @@ public:
 	 * category.
 	 */
 	uint64_t peak(int cat) { return peaks_[cat]; }
-	
+
+#ifndef NDEBUG
 	/**
 	 * Check that memory tallies are internally consistent;
 	 */
@@ -101,6 +88,7 @@ public:
 		assert_eq(tot, tot_);
 		return true;
 	}
+#endif
 
 protected:
 
@@ -426,6 +414,24 @@ public:
 	 * Return number of elements allocated.
 	 */
 	inline size_t capacity() const { return sz_; }
+	
+	/**
+	 * Return the total size in bytes occupied by this list.
+	 */
+	size_t totalSizeBytes() const {
+		return 	2 * sizeof(int) +
+		        2 * sizeof(size_t) +
+				cur_ * sizeof(T);
+	}
+
+	/**
+	 * Return the total capacity in bytes occupied by this list.
+	 */
+	size_t totalCapacityBytes() const {
+		return 	2 * sizeof(int) +
+		        2 * sizeof(size_t) +
+				sz_ * sizeof(T);
+	}
 	
 	/**
 	 * Ensure that there is sufficient capacity to expand to include
@@ -765,6 +771,22 @@ public:
 		assert_leq(begin+num, cur_);
 		if(num < 2) return;
 		std::sort(list_ + begin, list_ + begin + num);
+	}
+	
+	/**
+	 * Shuffle a portion of the list.
+	 */
+	void shufflePortion(size_t begin, size_t num, RandomSource& rnd) {
+		assert_leq(begin+num, cur_);
+		if(num < 2) return;
+		size_t left = num;
+		for(size_t i = begin; i < begin + num - 1; i++) {
+			uint32_t rndi = rnd.nextU32() % left;
+			if(rndi > 0) {
+				std::swap(list_[i], list_[i + rndi]);
+			}
+			left--;
+		}
 	}
 	
 	/**
@@ -1715,6 +1737,20 @@ public:
 	size_t size() const { return cur_; }
 
 	/**
+	 * Return the total size in bytes occupied by this set.
+	 */
+	size_t totalSizeBytes() const {
+		return sizeof(int) + cur_ * sizeof(T) + 2 * sizeof(size_t);
+	}
+
+	/**
+	 * Return the total capacity in bytes occupied by this set.
+	 */
+	size_t totalCapacityBytes() const {
+		return sizeof(int) + sz_ * sizeof(T) + 2 * sizeof(size_t);
+	}
+	
+	/**
 	 * Return true iff there are no elements.
 	 */
 	bool empty() const { return cur_ == 0; }
@@ -2368,6 +2404,24 @@ public:
 	 * Return number of elements.
 	 */
 	size_t size() const { return cur_; }
+	
+	/**
+	 * Return the total size in bytes occupied by this map.
+	 */
+	size_t totalSizeBytes() const {
+		return 	sizeof(int) +
+		        2 * sizeof(size_t) +
+				cur_ * sizeof(std::pair<K, V>);
+	}
+
+	/**
+	 * Return the total capacity in bytes occupied by this map.
+	 */
+	size_t totalCapacityBytes() const {
+		return 	sizeof(int) +
+		        2 * sizeof(size_t) +
+				sz_ * sizeof(std::pair<K, V>);
+	}
 
 	/**
 	 * Return true iff there are no elements.
@@ -2653,6 +2707,20 @@ public:
 	size_t size() const {
 		return l_.size();
 	}
+
+	/**
+	 * Return the number of items in the factory.
+	 */
+	size_t totalSizeBytes() const {
+		return l_.totalSizeBytes();
+	}
+
+	/**
+	 * Return the total capacity in bytes occupied by this factory.
+	 */
+	size_t totalCapacityBytes() const {
+		return 	l_.totalCapacityBytes();
+	}
     
     /**
      * Resize the list.
@@ -2696,6 +2764,87 @@ protected:
 };
 
 /**
+ * An expandable bit vector based on EList
+ */
+template <int S = 128>
+class EBitList {
+
+public:
+
+	explicit EBitList(size_t isz, int cat = 0) : l_(isz, cat) { reset(); }
+	
+	explicit EBitList(int cat = 0) : l_(cat) { reset(); }
+
+	/**
+	 * Reset to empty state.
+	 */
+	void clear() {
+		reset();
+	}
+	
+	/**
+	 * Reset to empty state.
+	 */
+	void reset() {
+		l_.clear();
+		max_ = std::numeric_limits<size_t>::max();
+	}
+
+	/**
+	 * Set a bit.
+	 */
+	void set(size_t off) {
+		resize(off);
+		l_[off >> 3] |= (1 << (off & 7));
+		if(off > max_ || max_ == std::numeric_limits<size_t>::max()) {
+			max_ = off;
+		}
+	}
+
+	/**
+	 * Return mutable list item at offset 'off'
+	 */
+	bool test(size_t off) const {
+		if((size_t)(off >> 3) >= l_.size()) {
+			return false;
+		}
+		return (l_[off >> 3] & (1 << (off & 7))) != 0;
+	}
+	
+	/**
+	 * Return size of the underlying byte array.
+	 */
+	size_t size() const {
+		return l_.size();
+	}
+	
+	/**
+	 * Resize to accomodate at least the given number of bits.
+	 */
+	void resize(size_t off) {
+		if((size_t)(off >> 3) >= l_.size()) {
+			size_t oldsz = l_.size();
+			l_.resize((off >> 3) + 1);
+			for(size_t i = oldsz; i < l_.size(); i++) {
+				l_[i] = 0;
+			}
+		}
+	}
+	
+	/**
+	 * Return max set bit.
+	 */
+	size_t max() const {
+		return max_;
+	}
+
+protected:
+
+	EList<uint8_t, S> l_;
+	size_t max_;
+};
+
+/**
  * Implements a min-heap.
  */
 template <typename T, int S = 128>
@@ -2718,6 +2867,14 @@ public:
 			} else break;
 		}
 		assert(repOk());
+	}
+	
+	/**
+	 * Return the topmost element.
+	 */
+	T top() {
+		assert_gt(l_.size(), 0);
+		return l_[0];
 	}
 	
 	/**
@@ -2769,6 +2926,20 @@ public:
 	size_t size() const {
 		return l_.size();
 	}
+
+	/**
+	 * Return the total size in bytes occupied by this heap.
+	 */
+	size_t totalSizeBytes() const {
+		return 	l_.totalSizeBytes();
+	}
+
+	/**
+	 * Return the total capacity in bytes occupied by this heap.
+	 */
+	size_t totalCapacityBytes() const {
+		return 	l_.totalCapacityBytes();
+	}
 	
 	/**
 	 * Return true when heap is empty.
@@ -2777,6 +2948,7 @@ public:
 		return l_.empty();
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that heap property holds.
 	 */
@@ -2804,6 +2976,7 @@ public:
 		}
 		return true;
 	}
+#endif
 	
 	/**
 	 * Clear the heap so that it's empty.
@@ -2878,6 +3051,7 @@ public:
 		// now is to clear the entire pool
 	}
 
+#ifndef NDEBUG
 	/**
 	 * Check that pool is internally consistent.
 	 */
@@ -2888,6 +3062,7 @@ public:
 		assert_gt(pagesz_, 0);
 		return true;
 	}
+#endif
 
 private:
 	int             cat_;    // memory category, for accounting purposes
@@ -2999,6 +3174,7 @@ public:
 		cur_ = curPage_ = 0;
 	}
 
+#ifndef NDEBUG
 	/**
 	 * Check that list is internally consistent.
 	 */
@@ -3007,6 +3183,7 @@ public:
 		assert_leq(cur_, PLIST_PER_PAGE);
 		return true;
 	}
+#endif
 
 	/**
 	 * Return the number of elements in the list.
@@ -3129,7 +3306,139 @@ protected:
 };
 
 /**
- * An expandable list backed by a pool.
+ * A slice of an EList.
+ */
+template<typename T, int S>
+class EListSlice {
+
+public:
+	EListSlice() :
+		i_(0),
+		len_(0),
+		list_()
+	{ }
+
+	EListSlice(
+		EList<T, S>& list,
+		size_t i,
+		size_t len) :
+		i_(i),
+		len_(len),
+		list_(&list)
+	{ }
+	
+	/**
+	 * Initialize from a piece of another PListSlice.
+	 */
+	void init(const EListSlice<T, S>& sl, size_t first, size_t last) {
+		assert_gt(last, first);
+		assert_leq(last - first, sl.len_);
+		i_ = sl.i_ + first;
+		len_ = last - first;
+		list_ = sl.list_;
+	}
+	
+	/**
+	 * Reset state to be empty.
+	 */
+	void reset() {
+		i_ = len_ = 0;
+		list_ = NULL;
+	}
+	
+	/**
+	 * Get the ith element of the slice.
+	 */
+	inline const T& get(size_t i) const {
+		assert(valid());
+		assert_lt(i, len_);
+		return list_->get(i + i_);
+	}
+
+	/**
+	 * Get the ith element of the slice.
+	 */
+	inline T& get(size_t i) {
+		assert(valid());
+		assert_lt(i, len_);
+		return list_->get(i + i_);
+	}
+
+	/**
+	 * Return a reference to the ith element.
+	 */
+	inline T& operator[](size_t i) {
+		assert(valid());
+		assert_lt(i, len_);
+		return list_->get(i + i_);
+	}
+
+	/**
+	 * Return a reference to the ith element.
+	 */
+	inline const T& operator[](size_t i) const {
+		assert(valid());
+		assert_lt(i, len_);
+		return list_->get(i + i_);
+	}
+
+	/**
+	 * Return true iff this slice is initialized.
+	 */
+	bool valid() const {
+		return len_ != 0;
+	}
+	
+	/**
+	 * Return number of elements in the slice.
+	 */
+	size_t size() const {
+		return len_;
+	}
+	
+#ifndef NDEBUG
+	/**
+	 * Ensure that the PListSlice is internally consistent and
+	 * consistent with the backing PList.
+	 */
+	bool repOk() const {
+		assert_leq(i_ + len_, list_->size());
+		return true;
+	}
+#endif
+	
+	/**
+	 * Return true iff this slice refers to the same slice of the same
+	 * list as the given slice.
+	 */
+	bool operator==(const EListSlice& sl) const {
+		return i_ == sl.i_ && len_ == sl.len_ && list_ == sl.list_;
+	}
+
+	/**
+	 * Return false iff this slice refers to the same slice of the same
+	 * list as the given slice.
+	 */
+	bool operator!=(const EListSlice& sl) const {
+		return !(*this == sl);
+	}
+	
+	/**
+	 * Set the length.  This could leave things inconsistent (e.g. could
+	 * include elements that fall off the end of list_).
+	 */
+	void setLength(size_t nlen) {
+		len_ = (uint32_t)nlen;
+	}
+	
+protected:
+	size_t i_;
+	size_t len_;
+	EList<T, S>* list_;
+};
+
+/**
+ * A slice of a PList.
  */
 template<typename T, int S>
 class PListSlice {
@@ -3219,6 +3528,7 @@ public:
 		return len_;
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Ensure that the PListSlice is internally consistent and
 	 * consistent with the backing PList.
@@ -3227,6 +3537,7 @@ public:
 		assert_leq(i_ + len_, list_->size());
 		return true;
 	}
+#endif
 	
 	/**
 	 * Return true iff this slice refers to the same slice of the same
@@ -3321,6 +3632,7 @@ public:
 		return ((left != NULL) ? 1 : 0) + ((right != NULL) ? 1 : 0);
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that node is internally consistent.
 	 */ 
@@ -3330,6 +3642,7 @@ public:
 		}
 		return true;
 	}
+#endif
 
 	/**
 	 * True -> my key is less than than the given node's key.
@@ -3456,6 +3769,7 @@ public:
 		return cur; // return the added or found node
 	}
 
+#ifndef NDEBUG
 	/**
 	 * Check that list is internally consistent.
 	 */
@@ -3465,6 +3779,7 @@ public:
 		assert(root_ == NULL || !root_->red);
 		return true;
 	}
+#endif
 	
 	/**
 	 * Clear all state.
@@ -3526,6 +3841,7 @@ public:
 
 protected:
 
+#ifndef NDEBUG
 	/**
 	 * Check specifically that the red-black invariants are satistfied.
 	 */
@@ -3604,6 +3920,7 @@ protected:
 		}
 		return true;
 	}
+#endif
 
 	/**
 	 * Rotate to the left such that n is replaced by its right child

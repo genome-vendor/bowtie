@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -234,17 +234,19 @@ public:
 		double rd = rnd.nextFloat() * mass_;
 		double mass_sofar = 0.0f;
 		size_t sz = masses_.size();
+		size_t last_unelim = std::numeric_limits<size_t>::max();
 		for(size_t i = 0; i < sz; i++) {
 			if(!elim_[i]) {
+				last_unelim = i;
 				mass_sofar += masses_[i];
-				if(rd < mass_sofar || i == sz - 1) {
+				if(rd < mass_sofar) {
 					// This is the one we hit
 					return i;
 				}
 			}
 		}
-		assert(false);
-		return 0;
+		assert_neq(std::numeric_limits<size_t>::max(), last_unelim);
+		return last_unelim;
 	}
 
 protected:
@@ -304,7 +306,8 @@ public:
 		redMate1_(DP_CAT),
 		redMate2_(DP_CAT),
 		pool_(bytes, CACHE_PAGE_SZ, DP_CAT),
-		salistEe_(DP_CAT) { }
+		salistEe_(DP_CAT),
+		gwstate_(GW_CAT) { }
 
 	/**
 	 * Given a collection of SeedHits for a single read, extend seed alignments
@@ -405,7 +408,7 @@ public:
 		WalkMetrics& wlm,            // group walk left metrics
 		SwMetrics& swmSeed,          // DP metrics for seed-extend
 		SwMetrics& swmMate,          // DP metrics for mate finidng
-		PerReadMetrics& prm,         // per-read metrics
+		PerReadMetrics& prm,         // per-read metrics for anchor
 		AlnSinkWrap* msink,          // AlnSink wrapper for multiseed-style aligner
 		bool swMateImmediately,      // whether to look for mate immediately
 		bool reportImmediately,      // whether to report hits immediately to msink
@@ -492,7 +495,7 @@ protected:
 	EList<SATupleAndPos, 16> satpos_;  // holds SATuple, SeedPos pairs
 	EList<SATupleAndPos, 16> satpos2_; // holds SATuple, SeedPos pairs
 	EList<SATuple, 16>       satups_;  // holds SATuples to explore elements from
-	EList<GroupWalk2>        gws_;         // list of GroupWalks; no particular order
+	EList<GroupWalk2S<TSlice, 16> > gws_;   // list of GroupWalks; no particular order
 	EList<size_t>            mateStreaks_; // mate-find fail streaks
 	RowSampler               rowsamp_;     // row sampler
 	
@@ -520,6 +523,7 @@ protected:
 	
 	Pool           pool_;      // memory pages for salistExact_
 	TSAList        salistEe_;  // PList for offsets for end-to-end hits
+	GroupWalkState gwstate_;   // some per-thread state shared by all GroupWalks
 	
 	// For AlnRes::matchesRef:
 	ASSERT_ONLY(SStringExpandable<char>     raw_refbuf_);

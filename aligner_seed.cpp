@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -554,6 +554,15 @@ void SeedAligner::searchAllSeeds(
 			}
 		}
 	}
+	prm.nSeedRanges = sr.numRanges();
+	prm.nSeedElts = sr.numElts();
+	prm.nSeedRangesFw = sr.numRangesFw();
+	prm.nSeedRangesRc = sr.numRangesRc();
+	prm.nSeedEltsFw = sr.numEltsFw();
+	prm.nSeedEltsRc = sr.numEltsRc();
+	prm.seedMedian = (uint64_t)(sr.medianHitsPerSeed() + 0.5);
+	prm.seedMean = (uint64_t)sr.averageHitsPerSeed();
+
 	prm.nSdFmops += bwops_;
 	met.seedsearch += seedsearches;
 	met.possearch += possearches;
@@ -1023,9 +1032,9 @@ bool SeedAligner::oneMmSearch(
 								rf.clear();
 								edits_.clear();
 								edits_.push_back(e);
-								if(!fw) Edit::invertPoss(edits_, len);
+								if(!fw) Edit::invertPoss(edits_, len, false);
 								Edit::toRef(fw ? read.patFw : read.patRc, edits_, rf);
-								if(!fw) Edit::invertPoss(edits_, len);
+								if(!fw) Edit::invertPoss(edits_, len, false);
 								assert_eq(len, rf.length());
 								for(size_t i = 0; i < len; i++) {
 									assert_lt((int)rf[i], 4);

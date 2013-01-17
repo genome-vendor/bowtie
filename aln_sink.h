@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -239,6 +239,7 @@ struct ReportingParams {
 		mixed   = mixed_;
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that reporting parameters are internally consistent.
 	 */
@@ -247,6 +248,7 @@ struct ReportingParams {
 		assert_geq(mhits, 1);
 		return true;
 	}
+#endif
 	
 	/**
 	 * Return true iff a -m or -M limit was set by the user.
@@ -495,6 +497,7 @@ public:
 	inline int exitUnpaired1()  const { return exitUnpair1_; }
 	inline int exitUnpaired2()  const { return exitUnpair2_; }
 
+#ifndef NDEBUG
 	/**
 	 * Check that ReportingState is internally consistent.
 	 */
@@ -511,7 +514,8 @@ public:
 		assert(done() || !doneWithMate(true) || !doneWithMate(false));
 		return true;
 	}
-	
+#endif
+
 	/**
 	 * Return ReportingParams object governing this ReportingState.
 	 */
@@ -618,6 +622,7 @@ public:
 	 */
 	virtual void append(
 		BTString&             o,
+		StackedAln&           staln,
 		size_t                threadId,
 		const Read           *rd1,
 		const Read           *rd2,
@@ -631,6 +636,7 @@ public:
 		const AlnFlags*       flags2,
 		const PerReadMetrics& prm,
 		const Mapq&           mapq,
+		const Scoring&        sc,
 		bool                  report2) = 0;
 
 	/**
@@ -645,6 +651,7 @@ public:
 	 */
 	virtual void reportHits(
 		BTString&             o,              // write to this buffer
+		StackedAln&           staln,       // StackedAln to write stacked alignment
 		size_t                threadId,       // which thread am I?
 		const Read           *rd1,            // mate #1
 		const Read           *rd2,            // mate #2
@@ -661,6 +668,7 @@ public:
 		const AlnFlags*       flags2,         // flags for mate #2
 		const PerReadMetrics& prm,            // per-read metrics
 		const Mapq&           mapq,           // MAPQ generator
+		const Scoring&        sc,             // scoring scheme
 		bool                  getLock = true) // true iff lock held by caller
 	{
 		// There are a few scenarios:
@@ -692,27 +700,27 @@ public:
 			assert_gt(select2->size(), 0);
 			AlnRes* r1pri = ((rs1 != NULL) ? &rs1->get(select1[0]) : NULL);
 			AlnRes* r2pri = ((rs2 != NULL) ? &rs2->get((*select2)[0]) : NULL);
-			append(o, threadId, rd1, rd2, rdid, r1pri, r2pri, summ, ssm1, ssm2,
-			       flags1, flags2, prm, mapq, true);
+			append(o, staln, threadId, rd1, rd2, rdid, r1pri, r2pri, summ,
+			       ssm1, ssm2, flags1, flags2, prm, mapq, sc, true);
 			flagscp1.setPrimary(false);
 			flagscp2.setPrimary(false);
 			for(size_t i = 1; i < select1.size(); i++) {
 				AlnRes* r1 = ((rs1 != NULL) ? &rs1->get(select1[i]) : NULL);
-				append(o, threadId, rd1, rd2, rdid, r1, r2pri, summ,
-				       ssm1, ssm2, flags1, flags2, prm, mapq, false);
+				append(o, staln, threadId, rd1, rd2, rdid, r1, r2pri, summ,
+				       ssm1, ssm2, flags1, flags2, prm, mapq, sc, false);
 			}
 			for(size_t i = 1; i < select2->size(); i++) {
 				AlnRes* r2 = ((rs2 != NULL) ? &rs2->get((*select2)[i]) : NULL);
-				append(o, threadId, rd2, rd1, rdid, r2, r1pri, summ,
-				       ssm2, ssm1, flags2, flags1, prm, mapq, false);
+				append(o, staln, threadId, rd2, rd1, rdid, r2, r1pri, summ,
+				       ssm2, ssm1, flags2, flags1, prm, mapq, sc, false);
 			}
 		} else {
 			// Handle cases 1-4
 			for(size_t i = 0; i < select1.size(); i++) {
 				AlnRes* r1 = ((rs1 != NULL) ? &rs1->get(select1[i]) : NULL);
 				AlnRes* r2 = ((rs2 != NULL) ? &rs2->get(select1[i]) : NULL);
-				append(o, threadId, rd1, rd2, rdid, r1, r2, summ,
-				       ssm1, ssm2, flags1, flags2, prm, mapq, true);
+				append(o, staln, threadId, rd1, rd2, rdid, r1, r2, summ,
+				       ssm1, ssm2, flags1, flags2, prm, mapq, sc, true);
 				if(flags1 != NULL) {
 					flagscp1.setPrimary(false);
 				}
@@ -729,6 +737,7 @@ public:
 	 */
 	virtual void reportUnaligned(
 		BTString&             o,              // write to this string
+		StackedAln&           staln,          // StackedAln to write stacked alignment
 		size_t                threadId,       // which thread am I?
 		const Read           *rd1,            // mate #1
 		const Read           *rd2,            // mate #2
@@ -740,11 +749,12 @@ public:
 		const AlnFlags*       flags2,         // flags for mate #2
 		const PerReadMetrics& prm,            // per-read metrics
 		const Mapq&           mapq,           // MAPQ calculator
+		const Scoring&        sc,             // scoring scheme
 		bool                  report2,        // report alns for both mates?
 		bool                  getLock = true) // true iff lock held by caller
 	{
-		append(o, threadId, rd1, rd2, rdid, NULL, NULL, summ,
-		       ssm1, ssm2, flags1, flags2, prm, mapq, report2);
+		append(o, staln, threadId, rd1, rd2, rdid, NULL, NULL, summ,
+		       ssm1, ssm2, flags1, flags2, prm, mapq, sc, report2);
 	}
 
 	/**
@@ -780,10 +790,12 @@ public:
 		}
 	}
 
+#ifndef NDEBUG
 	/**
 	 * Check that hit sink is internally consistent.
 	 */
 	bool repOk() const { return true; }
+#endif
 	
 	//
 	// Related to reporting seed hits
@@ -970,8 +982,6 @@ public:
 		best2Unp2_(std::numeric_limits<TAlScore>::min()),
 		rd1_(NULL),    // mate 1
 		rd2_(NULL),    // mate 2
-		rd1buf_(),     // copy of mate 1 Read object
-		rd2buf_(),     // copy of mate 2 Read object
 		rdid_(std::numeric_limits<TReadId>::max()), // read id
 		rs1_(),        // mate 1 alignments for paired-end alignments
 		rs2_(),        // mate 2 alignments for paired-end alignments
@@ -1022,6 +1032,7 @@ public:
 		RandomSource&      rnd,         // pseudo-random generator
 		ReportingMetrics&  met,         // reporting metrics
 		const PerReadMetrics& prm,      // per-read metrics
+		const Scoring& sc,              // scoring scheme
 		bool suppressSeedSummary = true,
 		bool suppressAlignments = false);
 	
@@ -1039,6 +1050,7 @@ public:
 		const AlnRes* rs1,
 		const AlnRes* rs2);
 
+#ifndef NDEBUG
 	/**
 	 * Check that hit sink wrapper is internally consistent.
 	 */
@@ -1061,6 +1073,7 @@ public:
 		assert(st_.repOk());
 		return true;
 	}
+#endif
 	
 	/**
 	 * Return true iff no alignments have been reported to this wrapper
@@ -1241,8 +1254,6 @@ protected:
 	TAlScore        best2Unp2_;    // second-greatest score so far for mate 2
 	const Read*     rd1_;   // mate #1
 	const Read*     rd2_;   // mate #2
-	Read            rd1buf_;// buffer for mate #1
-	Read            rd2buf_;// buffer for mate #2
 	TReadId         rdid_;  // read ID (potentially used for ordering)
 	EList<AlnRes>   rs1_;   // paired alignments for mate #1
 	EList<AlnRes>   rs2_;   // paired alignments for mate #2
@@ -1254,6 +1265,7 @@ protected:
 	
 	EList<std::pair<TAlScore, size_t> > selectBuf_;
 	BTString obuf_;
+	StackedAln staln_;
 };
 
 /**
@@ -1290,6 +1302,7 @@ public:
 	 */
 	virtual void append(
 		BTString&     o,           // write output to this string
+		StackedAln&   staln,       // StackedAln to write stacked alignment
 		size_t        threadId,    // which thread am I?
 		const Read*   rd1,         // mate #1
 		const Read*   rd2,         // mate #2
@@ -1303,18 +1316,19 @@ public:
 		const AlnFlags* flags2,    // flags for mate #2
 		const PerReadMetrics& prm, // per-read metrics
 		const Mapq& mapq,          // MAPQ calculator
+		const Scoring& sc,         // scoring scheme
 		bool report2)              // report alns for both mates
 	{
 		assert(rd1 != NULL || rd2 != NULL);
 		if(rd1 != NULL) {
 			assert(flags1 != NULL);
-			appendMate(o, *rd1, rd2, rdid, rs1, rs2, summ, ssm1, ssm2,
-			           *flags1, prm, mapq);
+			appendMate(o, staln, *rd1, rd2, rdid, rs1, rs2, summ, ssm1, ssm2,
+			           *flags1, prm, mapq, sc);
 		}
 		if(rd2 != NULL && report2) {
 			assert(flags2 != NULL);
-			appendMate(o, *rd2, rd1, rdid, rs2, rs1, summ, ssm2, ssm1,
-			           *flags2, prm, mapq);
+			appendMate(o, staln, *rd2, rd1, rdid, rs2, rs1, summ, ssm2, ssm1,
+			           *flags2, prm, mapq, sc);
 		}
 	}
 
@@ -1327,6 +1341,7 @@ protected:
 	 */
 	void appendMate(
 		BTString&     o,
+		StackedAln&   staln,
 		const Read&   rd,
 		const Read*   rdo,
 		const TReadId rdid,
@@ -1337,14 +1352,12 @@ protected:
 		const SeedAlSumm& ssmo,
 		const AlnFlags& flags,
 		const PerReadMetrics& prm, // per-read metrics
-		const Mapq& mapq);         // MAPQ calculator
+		const Mapq& mapq,          // MAPQ calculator
+		const Scoring& sc);        // scoring scheme
 
 	const SamConfig& samc_;    // settings & routines for SAM output
 	BTDnaString      dseq_;    // buffer for decoded read sequence
 	BTString         dqual_;   // buffer for decoded quality sequence
-	
-	char          mapqInps_[1024]; // summary of what went into MAPQ calculation
-
 };
 
 #endif /*ndef ALN_SINK_H_*/

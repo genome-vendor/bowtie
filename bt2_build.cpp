@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -50,7 +50,6 @@ static int noDc;
 static int entireSA;
 static int seed;
 static int showVersion;
-static bool doubleEbwt;
 //   Ebwt parameters
 static int32_t lineRate;
 static int32_t linesPerSide;
@@ -63,7 +62,6 @@ static bool packed;
 static bool writeRef;
 static bool justRef;
 static bool reverseEach;
-bool color;
 
 static void resetOptions() {
 	verbose      = true;  // be talkative (default)
@@ -77,7 +75,6 @@ static void resetOptions() {
 	entireSA     = 0;     // 1 = disable blockwise SA
 	seed         = 0;     // srandom seed
 	showVersion  = 0;     // just print version and quit?
-	doubleEbwt   = true;  // build forward and reverse Ebwts
 	//   Ebwt parameters
 	lineRate     = 6;  // a "line" is 64 bytes
 	linesPerSide = 1;  // 1 64-byte line on a side
@@ -89,7 +86,6 @@ static void resetOptions() {
 	packed       = false; //
 	writeRef     = true;  // write compact reference to .3.bt2/.4.bt2
 	justRef      = false; // *just* write compact reference, don't index
-	color        = false;
 	reverseEach  = false;
 }
 
@@ -111,7 +107,7 @@ enum {
  * Print a detailed usage message to the provided output stream.
  */
 static void printUsage(ostream& out) {
-	out << "Bowtie 2 version " << string(BOWTIE2_VERSION) << " by Ben Langmead (blangmea@jhsph.edu)" << endl;
+	out << "Bowtie 2 version " << string(BOWTIE2_VERSION).c_str() << " by Ben Langmead (langmea@cs.jhu.edu, www.cs.jhu.edu/~langmea)" << endl;
 	out << "Usage: bowtie2-build [options]* <reference_in> <bt2_index_base>" << endl
 	    << "    reference_in            comma-separated list of files with ref sequences" << endl
 	    << "    bt2_index_base          write .bt2 data to files with this dir/basename" << endl
@@ -284,6 +280,25 @@ static void parseOptions(int argc, const char **argv) {
 	}
 }
 
+EList<string> filesWritten;
+
+/**
+ * Delete all the index files that we tried to create.  For when we had to
+ * abort the index-building process due to an error.
+ */
+static void deleteIdxFiles(
+	const string& outfile,
+	bool doRef,
+	bool justRef)
+{
+	
+	for(size_t i = 0; i < filesWritten.size(); i++) {
+		cerr << "Deleting \"" << filesWritten[i].c_str()
+		     << "\" file written during aborted indexing attempt." << endl;
+		remove(filesWritten[i].c_str());
+	}
+}
+
 /**
  * Drive the index construction process and optionally sanity-check the
  * result.
@@ -298,13 +313,13 @@ static void driver(
 {
 	EList<FileBuf*> is(MISC_CAT);
 	bool bisulfite = false;
-	RefReadInParams refparams(color, reverse, nsToAs, bisulfite);
+	RefReadInParams refparams(false, reverse, nsToAs, bisulfite);
 	assert_gt(infiles.size(), 0);
 	if(format == CMDLINE) {
 		// Adapt sequence strings to stringstreams open for input
 		stringstream *ss = new stringstream();
 		for(size_t i = 0; i < infiles.size(); i++) {
-			(*ss) << ">" << i << endl << infiles[i] << endl;
+			(*ss) << ">" << i << endl << infiles[i].c_str() << endl;
 		}
 		FileBuf *fb = new FileBuf(ss);
 		assert(fb != NULL);
@@ -318,13 +333,13 @@ static void driver(
 		for(size_t i = 0; i < infiles.size(); i++) {
 			FILE *f = fopen(infiles[i].c_str(), "r");
 			if (f == NULL) {
-				cerr << "Error: could not open "<< infiles[i] << endl;
+				cerr << "Error: could not open "<< infiles[i].c_str() << endl;
 				throw 1;
 			}
 			FileBuf *fb = new FileBuf(f);
 			assert(fb != NULL);
 			if(fb->peek() == -1 || fb->eof()) {
-				cerr << "Warning: Empty fasta file: '" << infile << "'" << endl;
+				cerr << "Warning: Empty fasta file: '" << infile.c_str() << "'" << endl;
 				continue;
 			}
 			assert(!fb->eof());
@@ -347,6 +362,8 @@ static void driver(
 		if(verbose) cout << "Reading reference sizes" << endl;
 		Timer _t(cout, "  Time reading reference sizes: ", verbose);
 		if(!reverse && (writeRef || justRef)) {
+			filesWritten.push_back(outfile + ".3.bt2");
+			filesWritten.push_back(outfile + ".4.bt2");
 			sztot = BitPairReference::szsFromFasta(is, outfile, bigEndian, refparams, szs, sanityCheck);
 		} else {
 			sztot = BitPairReference::szsFromFasta(is, string(), bigEndian, refparams, szs, sanityCheck);
@@ -357,10 +374,12 @@ static void driver(
 	assert_gt(sztot.second, 0);
 	assert_gt(szs.size(), 0);
 	// Construct index from input strings and parameters
+	filesWritten.push_back(outfile + ".1.bt2");
+	filesWritten.push_back(outfile + ".2.bt2");
 	Ebwt ebwt(
 		TStr(),
 		packed,
-		refparams.color ? 1 : 0,
+		0,
 		1,  // TODO: maybe not?
 		lineRate,
 		offRate,      // suffix-array sampling rate
@@ -392,7 +411,7 @@ static void driver(
 		// multiple texts, what we'll get back is the joined,
 		// padded string, not a list)
 		ebwt.loadIntoMemory(
-			refparams.color ? 1 : 0,
+			0,
 			reverse ? (refparams.reverse == REF_READ_REVERSE) : 0,
 			true,  // load SA sample?
 			true,  // load ftab?
@@ -432,6 +451,7 @@ extern "C" {
  * main function.  Parses command-line arguments.
  */
 int bowtie_build(int argc, const char **argv) {
+	string outfile;
 	try {
 		// Reset all global state, including getopt state
 		opterr = optind = 1;
@@ -439,12 +459,11 @@ int bowtie_build(int argc, const char **argv) {
 
 		string infile;
 		EList<string> infiles(MISC_CAT);
-		string outfile;
 
 		parseOptions(argc, argv);
 		argv0 = argv[0];
 		if(showVersion) {
-			cout << argv0 << " version " << string(BOWTIE2_VERSION) << endl;
+			cout << argv0 << " version " << string(BOWTIE2_VERSION).c_str() << endl;
 			if(sizeof(void*) == 4) {
 				cout << "32-bit" << endl;
 			} else if(sizeof(void*) == 8) {
@@ -490,7 +509,7 @@ int bowtie_build(int argc, const char **argv) {
 		// Optionally summarize
 		if(verbose) {
 			cout << "Settings:" << endl
-				 << "  Output files: \"" << outfile << ".*.bt2\"" << endl
+				 << "  Output files: \"" << outfile.c_str() << ".*.bt2\"" << endl
 				 << "  Line rate: " << lineRate << " (line is " << (1<<lineRate) << " bytes)" << endl
 				 << "  Lines per side: " << linesPerSide << " (side is " << ((1<<lineRate)*linesPerSide) << " bytes)" << endl
 				 << "  Offset rate: " << offRate << " (one in " << (1<<offRate) << ")" << endl
@@ -523,9 +542,9 @@ int bowtie_build(int argc, const char **argv) {
 	#endif
 			cout << "  Random seed: " << seed << endl;
 			cout << "  Sizeofs: void*:" << sizeof(void*) << ", int:" << sizeof(int) << ", long:" << sizeof(long) << ", size_t:" << sizeof(size_t) << endl;
-			cout << "Input files DNA, " << file_format_names[format] << ":" << endl;
+			cout << "Input files DNA, " << file_format_names[format].c_str() << ":" << endl;
 			for(size_t i = 0; i < infiles.size(); i++) {
-				cout << "  " << infiles[i] << endl;
+				cout << "  " << infiles[i].c_str() << endl;
 			}
 		}
 		// Seed random number generator
@@ -549,24 +568,22 @@ int bowtie_build(int argc, const char **argv) {
 			}
 		}
 		int reverseType = reverseEach ? REF_READ_REVERSE_EACH : REF_READ_REVERSE;
-		if(doubleEbwt) {
-			srand(seed);
-			Timer timer(cout, "Total time for backward call to driver() for mirror index: ", verbose);
-			if(!packed) {
-				try {
-					driver<SString<char> >(infile, infiles, outfile + ".rev", false, reverseType);
-				} catch(bad_alloc& e) {
-					if(autoMem) {
-						cerr << "Switching to a packed string representation." << endl;
-						packed = true;
-					} else {
-						throw e;
-					}
+		srand(seed);
+		Timer timer(cout, "Total time for backward call to driver() for mirror index: ", verbose);
+		if(!packed) {
+			try {
+				driver<SString<char> >(infile, infiles, outfile + ".rev", false, reverseType);
+			} catch(bad_alloc& e) {
+				if(autoMem) {
+					cerr << "Switching to a packed string representation." << endl;
+					packed = true;
+				} else {
+					throw e;
 				}
 			}
-			if(packed) {
-				driver<S2bDnaString>(infile, infiles, outfile + ".rev", true, reverseType);
-			}
+		}
+		if(packed) {
+			driver<S2bDnaString>(infile, infiles, outfile + ".rev", true, reverseType);
 		}
 		return 0;
 	} catch(std::exception& e) {
@@ -574,6 +591,7 @@ int bowtie_build(int argc, const char **argv) {
 		cerr << "Command: ";
 		for(int i = 0; i < argc; i++) cerr << argv[i] << " ";
 		cerr << endl;
+		deleteIdxFiles(outfile, writeRef || justRef, justRef);
 		return 1;
 	} catch(int e) {
 		if(e != 0) {
@@ -582,6 +600,7 @@ int bowtie_build(int argc, const char **argv) {
 			for(int i = 0; i < argc; i++) cerr << argv[i] << " ";
 			cerr << endl;
 		}
+		deleteIdxFiles(outfile, writeRef || justRef, justRef);
 		return e;
 	}
 }

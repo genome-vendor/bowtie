@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -145,7 +145,12 @@ enum {
 	ARG_LOCAL_SEED_CACHE_SZ,    // --local-seed-cache-sz
 	ARG_CURRENT_SEED_CACHE_SZ,  // --seed-cache-sz
 	ARG_SAM_NO_UNAL,            // --no-unal
-	ARG_NON_DETERMINISTIC       // --non-deterministic
+	ARG_NON_DETERMINISTIC,      // --non-deterministic
+	ARG_TEST_25,                // --test-25
+	ARG_DESC_KB,                // --desc-kb
+	ARG_DESC_LANDING,           // --desc-landing
+	ARG_DESC_EXP,               // --desc-exp
+	ARG_DESC_FMOPS              // --desc-fmops
 };
 
 #endif

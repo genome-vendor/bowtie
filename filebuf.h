@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -533,7 +533,7 @@ public:
 	{
 		out_ = fopen(out.c_str(), binary ? "wb" : "w");
 		if(out_ == NULL) {
-			std::cerr << "Error: Could not open alignment output file " << out << std::endl;
+			std::cerr << "Error: Could not open alignment output file " << out.c_str() << std::endl;
 			throw 1;
 		}
 	}

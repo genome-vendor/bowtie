@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -3406,7 +3406,7 @@ public:
 		if     (watson && !crick) fw = true;
 		else if(!watson && crick) fw = false;
 		else {
-			fw = (rnd.nextU2() == 0) ? true : false;
+			fw = rnd.nextBool();
 		}
 		if(fw) {
 			// Install Watson substring

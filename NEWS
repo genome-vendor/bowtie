@@ -3,8 +3,8 @@ Bowtie 2 NEWS
 
 Bowtie 2 is now available for download from the project website,
 http://bowtie-bio.sf.net/bowtie2.  2.0.0-beta1 is the first version released to
-the public and 2.0.2 is the latest version.  Bowtie 2 is licensed under
-the GPLv3 license.  See `COPYING' file for details.
+the public and 2.0.5 is the latest version.  Bowtie 2 is licensed under
+the GPLv3 license.  See `LICENSE' file for details.
 
 Reporting Issues
 ================
@@ -16,8 +16,44 @@ Please report any issues using the Sourceforge bug tracker:
 Version Release History
 =======================
 
+Version 2.0.5 - January 4, 2013
+   * Fixed an issue that would cause excessive memory allocation when aligning
+     to very repetitive genomes.
+   * Fixed an issue that would cause a pseudo-randomness-related assert to be
+     thrown in debug mode under rare circumstances.
+   * When bowtie2-build fails, it will now delete index files created so far so
+     that invalid index files don't linger.
+   * Tokenizer no longer has limit of 10,000 tokens, which was a problem for
+     users trying to index a very large number of FASTA files.
+   * Updated manual's discussion of the -I and -X options to mention that
+     setting them farther apart makes Bowtie 2 slower.
+   * Renamed COPYING to LICENSE and created a README to be GitHub-friendly.
+
+Version 2.0.4 - December 17, 2012
+   * Fixed issue whereby --un, --al, --un-conc and --al-conc options would
+     incorrectly suppress SAM output.
+   * Fixed minor command-line parsing issue in wrapper script.
+   * Fixed issue on Windows where wrapper script would fail to find
+     bowtie2-align.exe binary.
+   * Updated some of the index-building scripts and documentation.
+   * Updated author's contact info in usage message.
+
+Version 2.0.3 - December 14, 2012
+   * Fixed thread safely issues that could cause crashes with a large number of
+     threads.  Thanks to John O’Neill for identifying these issues.
+   * Fixed some problems with pseudo-random number generation that could cause
+     unequal distribution of alignments across equally good candidate loci.
+   * The --un, --al, --un-conc, and --al-conc options (and their compressed
+     analogs) are all much faster now, making it less likely that they become
+     the bottleneck when Bowtie 2 is run with large -p.
+   * Fixed issue with innaccurate mapping qualities, XS:i, and YS:i flags when
+     --no-mixed and --no-discordant are specified at the same time.
+   * Fixed some compiler warnings and errors when using clang++ to compile.
+   * Fixed race condition in bowtie2 script when named pipes are used.
+   * Added more discussion of whitespace in read names to manual.
+
 Version 2.0.2 - October 31, 2012
-   * Fixes a couple small issues pointed out to be immediately after 2.0.1
+   * Fixes a couple small issues pointed out to me immediately after 2.0.1
      release
    * Mac binaries now built on 10.6 in order to be forward-compatible with more
      Mac OS versions

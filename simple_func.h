@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -23,6 +23,7 @@
 #include <math.h>
 #include <cassert>
 #include <limits>
+#include "tokenize.h"
 
 #define SIMPLE_FUNC_CONST  1
 #define SIMPLE_FUNC_LINEAR 2
@@ -105,6 +106,15 @@ public:
 			return (T)ret;
 		}
 	}
+	
+	static int parseType(const std::string& otype);
+	
+	static SimpleFunc parse(
+		const std::string& s,
+		double defaultConst = 0.0,
+		double defaultLinear = 0.0,
+		double defaultMin = 0.0,
+		double defaultMax = std::numeric_limits<double>::max());
 
 protected:
 

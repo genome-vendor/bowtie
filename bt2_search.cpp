@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -37,13 +37,13 @@
 #include "tokenize.h"
 #include "aln_sink.h"
 #include "pat.h"
-#include "bitset.h"
 #include "threading.h"
 #include "ds.h"
 #include "aligner_metrics.h"
 #include "sam.h"
 #include "aligner_seed.h"
 #include "aligner_seed_policy.h"
+#include "aligner_driver.h"
 #include "aligner_sw.h"
 #include "aligner_sw_driver.h"
 #include "aligner_cache.h"
@@ -53,6 +53,7 @@
 #include "presets.h"
 #include "opts.h"
 #include "outq.h"
+#include "aligner_seed2.h"
 
 using namespace std;
 
@@ -121,7 +122,9 @@ static bool samNoUnal; // don't print records for unaligned reads
 static bool samNoHead; // don't print any header lines in SAM output
 static bool samNoSQ;   // don't print @SQ header lines
 static bool sam_print_as;
-static bool sam_print_xs;
+static bool sam_print_xs;  // XS:i
+static bool sam_print_xss; // Xs:i and Ys:i
+static bool sam_print_yn;  // YN:i and Yn:i
 static bool sam_print_xn;
 static bool sam_print_cs;
 static bool sam_print_cq;
@@ -146,8 +149,12 @@ static bool sam_print_xu;
 static bool sam_print_yl;
 static bool sam_print_ye;
 static bool sam_print_yu;
+static bool sam_print_xp;
 static bool sam_print_yr;
+static bool sam_print_zb;
+static bool sam_print_zr;
 static bool sam_print_zf;
+static bool sam_print_zm;
 static bool sam_print_zi;
 static bool sam_print_zp;
 static bool sam_print_zu;
@@ -184,6 +191,10 @@ static int   penRfGapLinear;  // coeff of linear term for cost of gap extension 
 static SimpleFunc scoreMin;   // minimum valid score as function of read len
 static SimpleFunc nCeil;      // max # Ns allowed as function of read len
 static SimpleFunc msIval;     // interval between seeds as function of read len
+static double descConsExp;    // how to adjust score minimum as we descent further into index-assisted alignment
+static size_t descentLanding; // don't place a search root if it's within this many positions of end
+static SimpleFunc descentTotSz;    // maximum space a DescentDriver can use in bytes
+static SimpleFunc descentTotFmops; // maximum # FM ops a DescentDriver can perform
 static int    multiseedMms;   // mismatches permitted in a multiseed seed
 static int    multiseedLen;   // length of multiseed seeds
 static size_t multiseedOff;   // offset to begin extracting seeds
@@ -222,6 +233,7 @@ static size_t nSeedRounds;    // # seed rounds
 static bool reorder;          // true -> reorder SAM recs in -p mode
 static float sampleFrac;      // only align random fraction of input reads
 static bool arbitraryRandom;  // pseudo-randoms no longer a function of read properties
+static bool bowtie2p5;
 
 static string bt2index;      // read Bowtie 2 index from files with this prefix
 static EList<pair<int, string> > extra_opts;
@@ -297,6 +309,8 @@ static void resetOptions() {
 	samNoSQ					= false; // don't print @SQ header lines
 	sam_print_as            = true;
 	sam_print_xs            = true;
+	sam_print_xss           = false; // Xs:i and Ys:i
+	sam_print_yn            = false; // YN:i and Yn:i
 	sam_print_xn            = true;
 	sam_print_cs            = false;
 	sam_print_cq            = false;
@@ -321,8 +335,12 @@ static void resetOptions() {
 	sam_print_yl            = false;
 	sam_print_ye            = false;
 	sam_print_yu            = false;
+	sam_print_xp            = false;
 	sam_print_yr            = false;
+	sam_print_zb            = false;
+	sam_print_zr            = false;
 	sam_print_zf            = false;
+	sam_print_zm            = false;
 	sam_print_zi            = false;
 	sam_print_zp            = false;
 	sam_print_zu            = false;
@@ -358,6 +376,10 @@ static void resetOptions() {
 	scoreMin.init  (SIMPLE_FUNC_LINEAR, DEFAULT_MIN_CONST,   DEFAULT_MIN_LINEAR);
 	nCeil.init     (SIMPLE_FUNC_LINEAR, 0.0f, DMAX, 2.0f, 0.1f);
 	msIval.init    (SIMPLE_FUNC_LINEAR, 1.0f, DMAX, DEFAULT_IVAL_B, DEFAULT_IVAL_A);
+	descConsExp     = 2.0;
+	descentLanding  = 20;
+	descentTotSz.init(SIMPLE_FUNC_LINEAR, 1024.0, DMAX, 0.0, 1024.0);
+	descentTotFmops.init(SIMPLE_FUNC_LINEAR, 100.0, DMAX, 0.0, 10.0);
 	multiseedMms    = DEFAULT_SEEDMMS;
 	multiseedLen    = DEFAULT_SEEDLEN;
 	multiseedOff    = 0;
@@ -365,7 +387,7 @@ static void resetOptions() {
 	seedCacheCurrentMB = 20; // # MB to use for current-read seed hit cacheing
 	exactCacheCurrentMB = 20; // # MB to use for current-read seed hit cacheing
 	maxhalf            = 15; // max width on one side of DP table
-	seedSumm    = false; // print summary information about seed hits, not alignments
+	seedSumm           = false; // print summary information about seed hits, not alignments
 	doUngapped         = true;  // do ungapped alignment
 	maxIters           = 400;   // max iterations of extend loop
 	maxUg              = 300;   // stop after this many ungap extends
@@ -399,6 +421,7 @@ static void resetOptions() {
 	reorder = false;         // reorder SAM records with -p > 1
 	sampleFrac = 1.1f;       // align all reads
 	arbitraryRandom = false; // let pseudo-random seeds be a function of read properties
+	bowtie2p5 = false;
 }
 
 static const char *short_options = "fF:qbzhcu:rv:s:aP:t3:5:w:p:k:M:1:2:I:X:CQ:N:i:L:U:x:S:g:O:D:R:";
@@ -578,6 +601,12 @@ static struct option long_options[] = {
 	{(char*)"local-seed-cache-sz", required_argument, 0,     ARG_LOCAL_SEED_CACHE_SZ},
 	{(char*)"seed-cache-sz",       required_argument, 0,     ARG_CURRENT_SEED_CACHE_SZ},
 	{(char*)"no-unal",          no_argument,       0,        ARG_SAM_NO_UNAL},
+	{(char*)"test-25",          no_argument,       0,        ARG_TEST_25},
+	// TODO: following should be a function of read length?
+	{(char*)"desc-kb",          required_argument, 0,        ARG_DESC_KB},
+	{(char*)"desc-landing",     required_argument, 0,        ARG_DESC_LANDING},
+	{(char*)"desc-exp",         required_argument, 0,        ARG_DESC_EXP},
+	{(char*)"desc-fmops",       required_argument, 0,        ARG_DESC_FMOPS},
 	{(char*)0, 0, 0, 0} // terminator
 };
 
@@ -622,13 +651,13 @@ static void printArgDesc(ostream& out) {
  * Print a summary usage message to the provided output stream.
  */
 static void printUsage(ostream& out) {
-	out << "Bowtie 2 version " << string(BOWTIE2_VERSION) << " by Ben Langmead (blangmea@jhsph.edu)" << endl;
+	out << "Bowtie 2 version " << string(BOWTIE2_VERSION).c_str() << " by Ben Langmead (langmea@cs.jhu.edu, www.cs.jhu.edu/~langmea)" << endl;
 	string tool_name = "bowtie2-align";
 	if(wrapper == "basic-0") {
 		tool_name = "bowtie2";
 	}
 	out << "Usage: " << endl
-	    << "  " << tool_name << " [options]* -x <bt2-idx> {-1 <m1> -2 <m2> | -U <r>} [-S <sam>]" << endl
+	    << "  " << tool_name.c_str() << " [options]* -x <bt2-idx> {-1 <m1> -2 <m2> | -U <r>} [-S <sam>]" << endl
 	    << endl
 		<<     "  <bt2-idx>  Index filename prefix (minus trailing .X.bt2)." << endl
 		<<     "             NOTE: Bowtie 1 and Bowtie 2 indexes are not compatible." << endl
@@ -855,7 +884,7 @@ static string applyPreset(const string& sorig, Presets& presets) {
 		s.replace(found, strlen("%LOCAL%"), localAlign ? "-local" : "");
 	}
 	if(gVerbose) {
-		cerr << "Applying preset: '" << s << "' using preset menu '"
+		cerr << "Applying preset: '" << s.c_str() << "' using preset menu '"
 			 << presets.name() << "'" << endl;
 	}
 	string pol;
@@ -877,6 +906,18 @@ static EList<string> presetList;
  */
 static void parseOption(int next_option, const char *arg) {
 	switch (next_option) {
+		case ARG_TEST_25: bowtie2p5 = true; break;
+		case ARG_DESC_KB: descentTotSz = SimpleFunc::parse(arg, 0.0, 1024.0, 1024.0, DMAX); break;
+		case ARG_DESC_FMOPS: descentTotFmops = SimpleFunc::parse(arg, 0.0, 10.0, 100.0, DMAX); break;
+		case ARG_DESC_LANDING: descentLanding = parse<int>(arg); break;
+		case ARG_DESC_EXP: {
+			descConsExp = parse<double>(arg);
+			if(descConsExp < 0.0) {
+				cerr << "Error: --desc-exp must be greater than or equal to 0" << endl;
+				throw 1;
+			}
+			break;
+		}
 		case '1': tokenize(arg, ",", mates1); break;
 		case '2': tokenize(arg, ",", mates2); break;
 		case ARG_ONETWO: tokenize(arg, ",", mates12); format = TAB_MATE5; break;
@@ -1116,6 +1157,9 @@ static void parseOption(int next_option, const char *arg) {
 		case ARG_MAPQ_EX: {
 			sam_print_zp = true;
 			sam_print_zu = true;
+			sam_print_xp = true;
+			sam_print_xss = true;
+			sam_print_yn = true;
 			break;
 		}
 		case ARG_SHOW_RAND_SEED: {
@@ -1146,7 +1190,10 @@ static void parseOption(int next_option, const char *arg) {
 			sam_print_ye = true;
 			sam_print_yu = true;
 			sam_print_yr = true;
+			sam_print_zb = true;
+			sam_print_zr = true;
 			sam_print_zf = true;
+			sam_print_zm = true;
 			sam_print_zi = true;
 			break;
 		}
@@ -1284,19 +1331,27 @@ static void parseOption(int next_option, const char *arg) {
 			break;
 		}
 		case ARG_N_CEIL: {
-			polstr += ";";
 			// Split argument by comma
 			EList<string> args;
 			tokenize(arg, ",", args);
-			if(args.size() > 2 || args.size() == 0) {
-				cerr << "Error: expected 2 or fewer comma-separated "
+			if(args.size() > 3) {
+				cerr << "Error: expected 3 or fewer comma-separated "
 					 << "arguments to --n-ceil option, got "
 					 << args.size() << endl;
 				throw 1;
 			}
-			polstr += ("NCEIL=L," + args[0]);
-			if(args.size() > 1) {
-				polstr += ("," + (args[1]));
+			if(args.size() == 0) {
+				cerr << "Error: expected at least one argument to --n-ceil option" << endl;
+				throw 1;
+			}
+			polstr += ";NCEIL=";
+			if(args.size() == 3) {
+				polstr += (args[0] + "," + args[1] + "," + args[2]);
+			} else {
+				polstr += ("L," + args[0]);
+				if(args.size() > 1) {
+					polstr += ("," + (args[1]));
+				}
 			}
 			break;
 		}
@@ -1406,7 +1461,7 @@ static void parseOptions(int argc, const char **argv) {
 		polstr = polstr.substr(1);
 	}
 	if(gVerbose) {
-		cerr << "Final policy string: '" << polstr << "'" << endl;
+		cerr << "Final policy string: '" << polstr.c_str() << "'" << endl;
 	}
 	size_t failStreakTmp = 0;
 	SeedAlignmentPolicy::parseString(
@@ -1488,7 +1543,7 @@ static void parseOptions(int argc, const char **argv) {
 		for(size_t i = 0; i < mates1.size(); i++) {
 			for(size_t j = 0; j < mates2.size(); j++) {
 				if(mates1[i] == mates2[j] && !gQuiet) {
-					cerr << "Warning: Same mate file \"" << mates1[i] << "\" appears as argument to both -1 and -2" << endl;
+					cerr << "Warning: Same mate file \"" << mates1[i].c_str() << "\" appears as argument to both -1 and -2" << endl;
 				}
 			}
 		}
@@ -1516,6 +1571,14 @@ static void parseOptions(int argc, const char **argv) {
 			 << " instead" << endl;
 		multiseedMms = multiseedLen-1;
 	}
+	sam_print_zm = sam_print_zm && bowtie2p5;
+#ifndef NDEBUG
+	if(!gQuiet) {
+		cerr << "Warning: Running in debug mode.  Please use debug mode only "
+			 << "for diagnosing errors, and not for typical use of Bowtie 2."
+			 << endl;
+	}
+#endif
 }
 
 static const char *argv0 = NULL;
@@ -2414,7 +2477,7 @@ struct PerfMetrics {
 		if(o != NULL) { o->writeChars(buf); }
 
 		if(o != NULL) { o->write('\n'); }
-		if(metricsStderr) cerr << stderrSs.str() << endl;
+		if(metricsStderr) cerr << stderrSs.str().c_str() << endl;
 		if(!total) mergeIncrementals();
 	}
 	
@@ -2505,7 +2568,7 @@ static inline void printMmsSkipMsg(
 		   << "' because length (" << (mate1 ? ps.bufa().patFw.length() : ps.bufb().patFw.length())
 		   << ") <= # seed mismatches (" << seedmms << ")" << endl;
 	}
-	cerr << os.str();
+	cerr << os.str().c_str();
 }
 
 static inline void printLenSkipMsg(
@@ -2522,7 +2585,7 @@ static inline void printLenSkipMsg(
 		os << "Warning: skipping read '" << (mate1 ? ps.bufa().name : ps.bufb().name)
 		   << "' because it was < 2 characters long" << endl;
 	}
-	cerr << os.str();
+	cerr << os.str().c_str();
 }
 
 static inline void printLocalScoreMsg(
@@ -2541,7 +2604,7 @@ static inline void printLocalScoreMsg(
 		   << "--local mode for read '" << (mate1 ? ps.bufa().name : ps.bufb().name)
 		   << "; setting to 0 instead" << endl;
 	}
-	cerr << os.str();
+	cerr << os.str().c_str();
 }
 
 static inline void printEEScoreMsg(
@@ -2560,7 +2623,77 @@ static inline void printEEScoreMsg(
 		   << "--end-to-end mode for read '" << (mate1 ? ps.bufa().name : ps.bufb().name)
 		   << "; setting to 0 instead" << endl;
 	}
-	cerr << os.str();
+	cerr << os.str().c_str();
+}
+
+/**
+ * Initialize the minsc and maxpen arrays given information about the reads,
+ * the alignment policy and the scoring scheme.
+ */
+static void setupMinScores(
+	const PatternSourcePerThread& ps,
+	bool paired,
+	bool localAlign,
+	const Scoring& sc,
+	const size_t *rdlens,
+	TAlScore *minsc,
+	TAlScore *maxpen)
+{
+	if(bwaSwLike) {
+		// From BWA-SW manual: "Given an l-long query, the
+		// threshold for a hit to be retained is
+		// a*max{T,c*log(l)}."  We try to recreate that here.
+		float a = (float)sc.match(30);
+		float T = bwaSwLikeT, c = bwaSwLikeC;
+		minsc[0] = (TAlScore)max<float>(a*T, a*c*log(rdlens[0]));
+		if(paired) {
+			minsc[1] = (TAlScore)max<float>(a*T, a*c*log(rdlens[1]));
+		}
+	} else {
+		minsc[0] = scoreMin.f<TAlScore>(rdlens[0]);
+		if(paired) minsc[1] = scoreMin.f<TAlScore>(rdlens[1]);
+		if(localAlign) {
+			if(minsc[0] < 0) {
+				if(!gQuiet) printLocalScoreMsg(ps, paired, true);
+				minsc[0] = 0;
+			}
+			if(paired && minsc[1] < 0) {
+				if(!gQuiet) printLocalScoreMsg(ps, paired, false);
+				minsc[1] = 0;
+			}
+		} else {
+			if(minsc[0] > 0) {
+				if(!gQuiet) printEEScoreMsg(ps, paired, true);
+				minsc[0] = 0;
+			}
+			if(paired && minsc[1] > 0) {
+				if(!gQuiet) printEEScoreMsg(ps, paired, false);
+				minsc[1] = 0;
+			}
+		}
+	}
+	// Given minsc, calculate maxpen
+	if(localAlign) {
+		TAlScore perfect0 = sc.perfectScore(rdlens[0]);
+		assert_geq(perfect0, minsc[0]);
+		maxpen[0] = perfect0 - minsc[0];
+		if(paired) {
+			TAlScore perfect1 = sc.perfectScore(rdlens[1]);
+			assert_geq(perfect1, minsc[1]);
+			maxpen[1] = perfect1 - minsc[1];
+		} else {
+			maxpen[1] = std::numeric_limits<TAlScore>::min();
+		}
+	} else {
+		assert_leq(minsc[0], 0);
+		maxpen[0] = -minsc[0];
+		if(paired) {
+			assert_leq(minsc[1], 0);
+			maxpen[1] = -minsc[1];
+		} else {
+			maxpen[1] = std::numeric_limits<TAlScore>::min();
+		}
+	}
 }
 
 #define MERGE_METRICS(met, sync) { \
@@ -2789,6 +2922,7 @@ static void* multiseedSearchWorker(void *vp) {
 				}
 			}
 			prm.reset(); // per-read metrics
+			prm.doFmString = false;
 			if(sam_print_xt) {
 				gettimeofday(&prm.tv_beg, &prm.tz_beg);
 			}
@@ -2803,41 +2937,12 @@ static void* multiseedSearchWorker(void *vp) {
 				const size_t rdlen1 = ps->bufa().length();
 				const size_t rdlen2 = pair ? ps->bufb().length() : 0;
 				olm.bases += (rdlen1 + rdlen2);
-				// Check if read is identical to previous read
-				rnd.init(ROTL(ps->bufa().seed, 5));
-				int skipStages = msinkwrap.nextRead(
+				msinkwrap.nextRead(
 					&ps->bufa(),
 					pair ? &ps->bufb() : NULL,
 					rdid,
 					sc.qualitiesMatter());
 				assert(msinkwrap.inited());
-				if(skipStages == -1) {
-					// Read or pair is identical to previous.  Re-report from
-					// the msinkwrap immediately.
-					olm.srreads++;
-					olm.srbases += (rdlen1 + rdlen2);
-					rnd.init(ROTL(ps->bufa().seed, 20));
-					msinkwrap.finishRead(
-						NULL,                 // seed results for mate 1
-						NULL,                 // seed results for mate 2
-						exhaustive[0],        // exhausted seed results for 1?
-						exhaustive[1],        // exhausted seed results for 2?
-						nfilt[0],
-						nfilt[1],
-						scfilt[0],
-						scfilt[1],
-						lenfilt[0],
-						lenfilt[1],
-						qcfilt[0],
-						qcfilt[1],
-						sortByScore,          // prioritize by alignment score
-						rnd,                  // pseudo-random generator
-						rpm,                  // reporting metrics
-						prm,                  // per-read metrics
-						!seedSumm,            // suppress seed summaries?
-						seedSumm);            // suppress alignments?
-					break; // next read
-				}
 				size_t rdlens[2] = { rdlen1, rdlen2 };
 				size_t rdrows[2] = { rdlen1, rdlen2 };
 				// Calculate the minimum valid score threshold for the read
@@ -2939,7 +3044,9 @@ static void* multiseedSearchWorker(void *vp) {
 				size_t matemap[2] = { 0, 1 };
 				bool pairPostFilt = filt[0] && filt[1];
 				if(pairPostFilt) {
-					rnd.init(ROTL((rds[0]->seed ^ rds[1]->seed), 10));
+					rnd.init(ps->bufa().seed ^ ps->bufb().seed);
+				} else {
+					rnd.init(ps->bufa().seed);
 				}
 				// Calculate interval length for both mates
 				int interval[2] = { 0, 0 };
@@ -3056,7 +3163,6 @@ static void* multiseedSearchWorker(void *vp) {
 							assert(matei == 0 || pair);
 							assert(!msinkwrap.maxed());
 							assert(msinkwrap.repOk());
-							rnd.init(ROTL(rds[mate]->seed, 10));
 							int ret = 0;
 							if(pair) {
 								// Paired-end dynamic programming driver
@@ -3198,7 +3304,7 @@ static void* multiseedSearchWorker(void *vp) {
 							nelt[mate] = 0;
 							assert(!msinkwrap.maxed());
 							assert(msinkwrap.repOk());
-							rnd.init(ROTL(rds[mate]->seed, 10));
+							//rnd.init(ROTL(rds[mate]->seed, 10));
 							assert(shs[mate].empty());
 							assert(shs[mate].repOk(&ca.current()));
 							bool yfw = minedfw[mate] <= 1 && !nofw[mate];
@@ -3401,7 +3507,7 @@ static void* multiseedSearchWorker(void *vp) {
 							assert(roundi == 0 || offset > 0);
 							assert(!msinkwrap.maxed());
 							assert(msinkwrap.repOk());
-							rnd.init(ROTL(rds[mate]->seed, 10));
+							//rnd.init(ROTL(rds[mate]->seed, 10));
 							assert(shs[mate].repOk(&ca.current()));
 							swmSeed.sdatts++;
 							// Set up seeds
@@ -3476,7 +3582,7 @@ static void* multiseedSearchWorker(void *vp) {
 							}
 							assert(!msinkwrap.maxed());
 							assert(msinkwrap.repOk());
-							rnd.init(ROTL(rds[mate]->seed, 10));
+							//rnd.init(ROTL(rds[mate]->seed, 10));
 							assert(shs[mate].repOk(&ca.current()));
 							if(!seedSumm) {
 								// If there aren't any seed hits...
@@ -3626,8 +3732,8 @@ static void* multiseedSearchWorker(void *vp) {
 					}
 
 				// Commit and report paired-end/unpaired alignments
-				uint32_t sd = rds[0]->seed ^ rds[1]->seed;
-				rnd.init(ROTL(sd, 20));
+				//uint32_t sd = rds[0]->seed ^ rds[1]->seed;
+				//rnd.init(ROTL(sd, 20));
 				msinkwrap.finishRead(
 					&shs[0],              // seed results for mate 1
 					&shs[1],              // seed results for mate 2
@@ -3645,10 +3751,353 @@ static void* multiseedSearchWorker(void *vp) {
 					rnd,                  // pseudo-random generator
 					rpm,                  // reporting metrics
 					prm,                  // per-read metrics
+					sc,                   // scoring scheme
 					!seedSumm,            // suppress seed summaries?
 					seedSumm);            // suppress alignments?
 				assert(!retry || msinkwrap.empty());
 			} // while(retry)
+		} // if(rdid >= skipReads && rdid < qUpto)
+		else if(rdid >= qUpto) {
+			break;
+		}
+		if(metricsPerRead) {
+			MERGE_METRICS(metricsPt, nthreads > 1);
+			nametmp = ps->bufa().name;
+			metricsPt.reportInterval(
+				metricsOfb, metricsStderr, true, true, &nametmp);
+			metricsPt.reset();
+		}
+	} // while(true)
+	
+	// One last metrics merge
+	MERGE_METRICS(metrics, nthreads > 1);
+
+#ifdef BOWTIE_PTHREADS
+	if(tid > 0) { pthread_exit(NULL); }
+#endif
+	return NULL;
+}
+
+static void* multiseedSearchWorker_2p5(void *vp) {
+	int tid = *((int*)vp);
+	assert(multiseed_ebwtFw != NULL);
+	assert(multiseedMms == 0 || multiseed_ebwtBw != NULL);
+	PairedPatternSource&    patsrc   = *multiseed_patsrc;
+	const Ebwt&             ebwtFw   = *multiseed_ebwtFw;
+	const Ebwt&             ebwtBw   = *multiseed_ebwtBw;
+	const Scoring&          sc       = *multiseed_sc;
+	const BitPairReference& ref      = *multiseed_refs;
+	AlnSink&                msink    = *multiseed_msink;
+	OutFileBuf*             metricsOfb = multiseed_metricsOfb;
+
+	// Sinks: these are so that we can print tables encoding counts for
+	// events of interest on a per-read, per-seed, per-join, or per-SW
+	// level.  These in turn can be used to diagnose performance
+	// problems, or generally characterize performance.
+	
+	auto_ptr<PatternSourcePerThreadFactory> patsrcFact(createPatsrcFactory(patsrc, tid));
+	auto_ptr<PatternSourcePerThread> ps(patsrcFact->create());
+	
+	// Instantiate an object for holding reporting-related parameters.
+	ReportingParams rp(
+		(allHits ? std::numeric_limits<THitInt>::max() : khits), // -k
+		mhits,             // -m/-M
+		0,                 // penalty gap (not used now)
+		msample,           // true -> -M was specified, otherwise assume -m
+		gReportDiscordant, // report discordang paired-end alignments?
+		gReportMixed);     // report unpaired alignments for paired reads?
+
+	// Instantiate a mapping quality calculator
+	auto_ptr<Mapq> bmapq(new_mapq(mapqv, scoreMin, sc));
+	
+	// Make a per-thread wrapper for the global MHitSink object.
+	AlnSinkWrap msinkwrap(
+		msink,         // global sink
+		rp,            // reporting parameters
+		*bmapq.get(),  // MAPQ calculator
+		(size_t)tid);  // thread id
+
+	OuterLoopMetrics olm;
+	SeedSearchMetrics sdm;
+	WalkMetrics wlm;
+	SwMetrics swmSeed, swmMate;
+	DescentMetrics descm;
+	ReportingMetrics rpm;
+	RandomSource rnd, rndArb;
+	SSEMetrics sseU8ExtendMet;
+	SSEMetrics sseU8MateMet;
+	SSEMetrics sseI16ExtendMet;
+	SSEMetrics sseI16MateMet;
+	uint64_t nbtfiltst = 0; // TODO: find a new home for these
+	uint64_t nbtfiltsc = 0; // TODO: find a new home for these
+	uint64_t nbtfiltdo = 0; // TODO: find a new home for these
+
+	ASSERT_ONLY(BTDnaString tmp);
+
+	int pepolFlag;
+	if(gMate1fw && gMate2fw) {
+		pepolFlag = PE_POLICY_FF;
+	} else if(gMate1fw && !gMate2fw) {
+		pepolFlag = PE_POLICY_FR;
+	} else if(!gMate1fw && gMate2fw) {
+		pepolFlag = PE_POLICY_RF;
+	} else {
+		pepolFlag = PE_POLICY_RR;
+	}
+	assert_geq(gMaxInsert, gMinInsert);
+	assert_geq(gMinInsert, 0);
+	PairedEndPolicy pepol(
+		pepolFlag,
+		gMaxInsert,
+		gMinInsert,
+		localAlign,
+		gFlippedMatesOK,
+		gDovetailMatesOK,
+		gContainMatesOK,
+		gOlapMatesOK,
+		gExpandToFrag);
+	
+	AlignerDriver ald(
+		descConsExp,       // exponent for interpolating maximum penalty
+		msIval,            // interval length, as function of read length
+		descentLanding,    // landing length
+		gVerbose,          // verbose?
+		descentTotSz,      // limit on total bytes of best-first search data
+		descentTotFmops);  // limit on total number of FM index ops in BFS
+	
+	PerfMetrics metricsPt; // per-thread metrics object; for read-level metrics
+	BTString nametmp;
+	
+	PerReadMetrics prm;
+
+	// Used by thread with threadid == 1 to measure time elapsed
+	time_t iTime = time(0);
+
+	// Keep track of whether last search was exhaustive for mates 1 and 2
+	bool exhaustive[2] = { false, false };
+	// Keep track of whether mates 1/2 were filtered out last time through
+	bool filt[2]    = { true, true };
+	// Keep track of whether mates 1/2 were filtered out due Ns last time
+	bool nfilt[2]   = { true, true };
+	// Keep track of whether mates 1/2 were filtered out due to not having
+	// enough characters to rise about the score threshold.
+	bool scfilt[2]  = { true, true };
+	// Keep track of whether mates 1/2 were filtered out due to not having
+	// more characters than the number of mismatches permitted in a seed.
+	bool lenfilt[2] = { true, true };
+	// Keep track of whether mates 1/2 were filtered out by upstream qc
+	bool qcfilt[2]  = { true, true };
+
+	rndArb.init((uint32_t)time(0));
+	int mergei = 0;
+	int mergeival = 16;
+	while(true) {
+		bool success = false, done = false, paired = false;
+		ps->nextReadPair(success, done, paired, outType != OUTPUT_SAM);
+		if(!success && done) {
+			break;
+		} else if(!success) {
+			continue;
+		}
+		TReadId rdid = ps->rdid();
+		bool sample = true;
+		if(arbitraryRandom) {
+			ps->bufa().seed = rndArb.nextU32();
+			ps->bufb().seed = rndArb.nextU32();
+		}
+		if(sampleFrac < 1.0f) {
+			rnd.init(ROTL(ps->bufa().seed, 2));
+			sample = rnd.nextFloat() < sampleFrac;
+		}
+		if(rdid >= skipReads && rdid < qUpto && sample) {
+			//
+			// Check if there is metrics reporting for us to do.
+			//
+			if(metricsIval > 0 &&
+			   (metricsOfb != NULL || metricsStderr) &&
+			   !metricsPerRead &&
+			   ++mergei == mergeival)
+			{
+				// Do a periodic merge.  Update global metrics, in a
+				// synchronized manner if needed.
+				MERGE_METRICS(metrics, nthreads > 1);
+				mergei = 0;
+				// Check if a progress message should be printed
+				if(tid == 0) {
+					// Only thread 1 prints progress messages
+					time_t curTime = time(0);
+					if(curTime - iTime >= metricsIval) {
+						metrics.reportInterval(metricsOfb, metricsStderr, false, true, NULL);
+						iTime = curTime;
+					}
+				}
+			}
+			prm.reset(); // per-read metrics
+			prm.doFmString = sam_print_zm;
+			// If we're reporting how long each read takes, get the initial time
+			// measurement here
+			if(sam_print_xt) {
+				gettimeofday(&prm.tv_beg, &prm.tz_beg);
+			}
+			// Try to align this read
+			assert_eq(ps->bufa().color, false);
+			olm.reads++;
+			bool pair = paired;
+			const size_t rdlen1 = ps->bufa().length();
+			const size_t rdlen2 = pair ? ps->bufb().length() : 0;
+			olm.bases += (rdlen1 + rdlen2);
+			// Check if read is identical to previous read
+			rnd.init(ROTL(ps->bufa().seed, 5));
+			msinkwrap.nextRead(
+				&ps->bufa(),
+				pair ? &ps->bufb() : NULL,
+				rdid,
+				sc.qualitiesMatter());
+			assert(msinkwrap.inited());
+			size_t rdlens[2] = { rdlen1, rdlen2 };
+			// Calculate the minimum valid score threshold for the read
+			TAlScore minsc[2], maxpen[2];
+			minsc[0] = minsc[1] = std::numeric_limits<TAlScore>::max();
+			setupMinScores(*ps, paired, localAlign, sc, rdlens, minsc, maxpen);
+			// N filter; does the read have too many Ns?
+			size_t readns[2] = {0, 0};
+			sc.nFilterPair(
+				&ps->bufa().patFw,
+				pair ? &ps->bufb().patFw : NULL,
+				readns[0],
+				readns[1],
+				nfilt[0],
+				nfilt[1]);
+			// Score filter; does the read enough character to rise above
+			// the score threshold?
+			scfilt[0] = sc.scoreFilter(minsc[0], rdlens[0]);
+			scfilt[1] = sc.scoreFilter(minsc[1], rdlens[1]);
+			lenfilt[0] = lenfilt[1] = true;
+			if(rdlens[0] <= (size_t)multiseedMms || rdlens[0] < 2) {
+				if(!gQuiet) printMmsSkipMsg(*ps, paired, true, multiseedMms);
+				lenfilt[0] = false;
+			}
+			if((rdlens[1] <= (size_t)multiseedMms || rdlens[1] < 2) && paired) {
+				if(!gQuiet) printMmsSkipMsg(*ps, paired, false, multiseedMms);
+				lenfilt[1] = false;
+			}
+			if(rdlens[0] < 2) {
+				if(!gQuiet) printLenSkipMsg(*ps, paired, true);
+				lenfilt[0] = false;
+			}
+			if(rdlens[1] < 2 && paired) {
+				if(!gQuiet) printLenSkipMsg(*ps, paired, false);
+				lenfilt[1] = false;
+			}
+			qcfilt[0] = qcfilt[1] = true;
+			if(qcFilter) {
+				qcfilt[0] = (ps->bufa().filter != '0');
+				qcfilt[1] = (ps->bufb().filter != '0');
+			}
+			filt[0] = (nfilt[0] && scfilt[0] && lenfilt[0] && qcfilt[0]);
+			filt[1] = (nfilt[1] && scfilt[1] && lenfilt[1] && qcfilt[1]);
+			prm.nFilt += (filt[0] ? 0 : 1) + (filt[1] ? 0 : 1);
+			Read* rds[2] = { &ps->bufa(), &ps->bufb() };
+			assert(msinkwrap.empty());
+			// Calcualte nofw / no rc
+			bool nofw[2] = { false, false };
+			bool norc[2] = { false, false };
+			nofw[0] = paired ? (gMate1fw ? gNofw : gNorc) : gNofw;
+			norc[0] = paired ? (gMate1fw ? gNorc : gNofw) : gNorc;
+			nofw[1] = paired ? (gMate2fw ? gNofw : gNorc) : gNofw;
+			norc[1] = paired ? (gMate2fw ? gNorc : gNofw) : gNorc;
+			// Calculate nceil
+			int nceil[2] = { 0, 0 };
+			nceil[0] = nCeil.f<int>((double)rdlens[0]);
+			nceil[0] = min(nceil[0], (int)rdlens[0]);
+			if(paired) {
+				nceil[1] = nCeil.f<int>((double)rdlens[1]);
+				nceil[1] = min(nceil[1], (int)rdlens[1]);
+			}
+			exhaustive[0] = exhaustive[1] = false;
+			bool pairPostFilt = filt[0] && filt[1];
+			if(pairPostFilt) {
+				rnd.init(ROTL((rds[0]->seed ^ rds[1]->seed), 10));
+			}
+			// Calculate streak length
+			size_t streak[2]    = { maxDpStreak,   maxDpStreak };
+			size_t mtStreak[2]  = { maxMateStreak, maxMateStreak };
+			size_t mxDp[2]      = { maxDp,         maxDp       };
+			size_t mxUg[2]      = { maxUg,         maxUg       };
+			size_t mxIter[2]    = { maxIters,      maxIters    };
+			if(allHits) {
+				streak[0]   = streak[1]   = std::numeric_limits<size_t>::max();
+				mtStreak[0] = mtStreak[1] = std::numeric_limits<size_t>::max();
+				mxDp[0]     = mxDp[1]     = std::numeric_limits<size_t>::max();
+				mxUg[0]     = mxUg[1]     = std::numeric_limits<size_t>::max();
+				mxIter[0]   = mxIter[1]   = std::numeric_limits<size_t>::max();
+			} else if(khits > 1) {
+				for(size_t mate = 0; mate < 2; mate++) {
+					streak[mate]   += (khits-1) * maxStreakIncr;
+					mtStreak[mate] += (khits-1) * maxStreakIncr;
+					mxDp[mate]     += (khits-1) * maxItersIncr;
+					mxUg[mate]     += (khits-1) * maxItersIncr;
+					mxIter[mate]   += (khits-1) * maxItersIncr;
+				}
+			}
+			// If paired-end and neither mate filtered...
+			if(filt[0] && filt[1]) {
+				// Reduce streaks for either mate
+				streak[0] = (size_t)ceil((double)streak[0] / 2.0);
+				streak[1] = (size_t)ceil((double)streak[1] / 2.0);
+				assert_gt(streak[1], 0);
+			}
+			assert_gt(streak[0], 0);
+			// Calculate # seed rounds for each mate
+			size_t nrounds[2] = { nSeedRounds, nSeedRounds };
+			if(filt[0] && filt[1]) {
+				nrounds[0] = (size_t)ceil((double)nrounds[0] / 2.0);
+				nrounds[1] = (size_t)ceil((double)nrounds[1] / 2.0);
+				assert_gt(nrounds[1], 0);
+			}
+			assert_gt(nrounds[0], 0);
+			// Increment counters according to what got filtered
+			for(size_t mate = 0; mate < (pair ? 2:1); mate++) {
+				if(!filt[mate]) {
+					// Mate was rejected by N filter
+					olm.freads++;               // reads filtered out
+					olm.fbases += rdlens[mate]; // bases filtered out
+				} else {
+					olm.ureads++;               // reads passing filter
+					olm.ubases += rdlens[mate]; // bases passing filter
+				}
+			}
+			if(filt[0]) {
+				ald.initRead(ps->bufa(), nofw[0], norc[0], minsc[0], maxpen[0], filt[1] ? &ps->bufb() : NULL);
+			} else if(filt[1]) {
+				ald.initRead(ps->bufb(), nofw[1], norc[1], minsc[1], maxpen[1], NULL);
+			}
+			if(filt[0] || filt[1]) {
+				ald.go(sc, ebwtFw, ebwtBw, ref, descm, wlm, prm, rnd, msinkwrap);
+			}
+			// Commit and report paired-end/unpaired alignments
+			uint32_t sd = rds[0]->seed ^ rds[1]->seed;
+			rnd.init(ROTL(sd, 20));
+			msinkwrap.finishRead(
+				NULL,                 // seed results for mate 1
+				NULL,                 // seed results for mate 2
+				exhaustive[0],        // exhausted seed results for 1?
+				exhaustive[1],        // exhausted seed results for 2?
+				nfilt[0],
+				nfilt[1],
+				scfilt[0],
+				scfilt[1],
+				lenfilt[0],
+				lenfilt[1],
+				qcfilt[0],
+				qcfilt[1],
+				sortByScore,          // prioritize by alignment score
+				rnd,                  // pseudo-random generator
+				rpm,                  // reporting metrics
+				prm,                  // per-read metrics
+				sc,                   // scoring scheme
+				!seedSumm,            // suppress seed summaries?
+				seedSumm);            // suppress alignments?
 		} // if(rdid >= skipReads && rdid < qUpto)
 		else if(rdid >= qUpto) {
 			break;
@@ -3747,11 +4196,19 @@ static void multiseedSearch(
 		for(int i = 0; i < nthreads-1; i++) {
 			// Thread IDs start at 1
 			tids[i] = i+1;
-			createThread(&threads[i], multiseedSearchWorker, (void*)&tids[i]);
+			if(bowtie2p5) {
+				createThread(&threads[i], multiseedSearchWorker_2p5, (void*)&tids[i]);
+			} else {
+				createThread(&threads[i], multiseedSearchWorker, (void*)&tids[i]);
+			}
 		}
 #endif
 		int tmp = 0;
-		multiseedSearchWorker((void*)&tmp);
+		if(bowtie2p5) {
+			multiseedSearchWorker_2p5((void*)&tmp);
+		} else {
+			multiseedSearchWorker((void*)&tmp);
+		}
 #ifdef BOWTIE_PTHREADS
 		for(int i = 0; i < nthreads-1; i++) joinThread(threads[i]);
 #endif
@@ -3934,6 +4391,8 @@ static void driver(
 			rgs_optflag,            // read-group string
 			sam_print_as,
 			sam_print_xs,
+			sam_print_xss,
+			sam_print_yn,
 			sam_print_xn,
 			sam_print_cs,
 			sam_print_cq,
@@ -3958,8 +4417,12 @@ static void driver(
 			sam_print_yl,
 			sam_print_ye,
 			sam_print_yu,
+			sam_print_xp,
 			sam_print_yr,
+			sam_print_zb,
+			sam_print_zr,
 			sam_print_zf,
+			sam_print_zm,
 			sam_print_zi,
 			sam_print_zp,
 			sam_print_zu);
@@ -4113,7 +4576,7 @@ int bowtie(int argc, const char **argv) {
 			// Get output filename
 			if(optind < argc && outfile.empty()) {
 				outfile = argv[optind++];
-				cerr << "Warning: Output file '" << outfile
+				cerr << "Warning: Output file '" << outfile.c_str()
 				     << "' was specified without -S.  This will not work in "
 					 << "future Bowtie 2 versions.  Please use -S instead."
 					 << endl;
@@ -4136,16 +4599,16 @@ int bowtie(int argc, const char **argv) {
 
 			// Optionally summarize
 			if(gVerbose) {
-				cout << "Input bt2 file: \"" << bt2index << "\"" << endl;
-				cout << "Query inputs (DNA, " << file_format_names[format] << "):" << endl;
+				cout << "Input bt2 file: \"" << bt2index.c_str() << "\"" << endl;
+				cout << "Query inputs (DNA, " << file_format_names[format].c_str() << "):" << endl;
 				for(size_t i = 0; i < queries.size(); i++) {
-					cout << "  " << queries[i] << endl;
+					cout << "  " << queries[i].c_str() << endl;
 				}
 				cout << "Quality inputs:" << endl;
 				for(size_t i = 0; i < qualities.size(); i++) {
-					cout << "  " << qualities[i] << endl;
+					cout << "  " << qualities[i].c_str() << endl;
 				}
-				cout << "Output file: \"" << outfile << "\"" << endl;
+				cout << "Output file: \"" << outfile.c_str() << "\"" << endl;
 				cout << "Local endianness: " << (currentlyBigEndian()? "big":"little") << endl;
 				cout << "Sanity checking: " << (sanityCheck? "enabled":"disabled") << endl;
 			#ifdef NDEBUG

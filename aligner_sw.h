@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -250,11 +250,12 @@ public:
 	 */
 	void initRef(
 		bool fw,               // whether to forward or revcomp read is aligning
-		uint32_t refidx,       // id of reference aligned against
+		TRefId refidx,         // id of reference aligned against
 		const DPRect& rect,    // DP rectangle
 		char *rf,              // reference sequence
 		size_t rfi,            // offset of first reference char to align to
 		size_t rff,            // offset of last reference char to align to
+		TRefOff reflen,        // length of reference sequence
 		const Scoring& sc,     // scoring scheme
 		TAlScore minsc,        // minimum score
 		bool enable8,          // use 8-bit SSE if possible?
@@ -278,10 +279,10 @@ public:
 	 */
 	void initRef(
 		bool fw,               // whether to forward or revcomp read aligned
-		uint32_t refidx,       // reference aligned against
+		TRefId refidx,         // reference aligned against
 		const DPRect& rect,    // DP rectangle
 		const BitPairReference& refs, // Reference strings
-		size_t reflen,         // length of reference sequence
+		TRefOff reflen,        // length of reference sequence
 		const Scoring& sc,     // scoring scheme
 		TAlScore minsc,        // minimum alignment score
 		bool enable8,          // use 8-bit SSE if possible?
@@ -318,7 +319,7 @@ public:
 	 * Align read 'rd' to reference using read & reference information given
 	 * last time init() was called.  Uses dynamic programming.
 	 */
-	bool align(RandomSource& rnd);
+	bool align(RandomSource& rnd, TAlScore& best);
 	
 	/**
 	 * Populate the given SwResult with information about the "next best"
@@ -368,6 +369,7 @@ public:
 	 */
 	inline void reset() { initedRef_ = initedRead_ = false; }
 
+#ifndef NDEBUG
 	/**
 	 * Check that aligner is internally consistent.
 	 */
@@ -380,6 +382,7 @@ public:
 		}
 		return true;
 	}
+#endif
 	
 	/**
 	 * Return the number of alignments given out so far by nextAlignment().
@@ -573,14 +576,15 @@ protected:
 	const BTDnaString  *rdrc_;   // read sequence for rc read
 	const BTString     *qufw_;   // read qualities for fw read
 	const BTString     *qurc_;   // read qualities for rc read
-	size_t              rdi_;    // offset of first read char to align
-	size_t              rdf_;    // offset of last read char to align
+	TReadOff            rdi_;    // offset of first read char to align
+	TReadOff            rdf_;    // offset of last read char to align
 	bool                fw_;     // true iff read sequence is original fw read
-	uint32_t            refidx_; // id of reference aligned against
+	TRefId              refidx_; // id of reference aligned against
+	TRefOff             reflen_; // length of entire reference sequence
 	const DPRect*       rect_;   // DP rectangle
 	char               *rf_;     // reference sequence
-	size_t              rfi_;    // offset of first ref char to align to
-	size_t              rff_;    // offset of last ref char to align to (excl)
+	TRefOff             rfi_;    // offset of first ref char to align to
+	TRefOff             rff_;    // offset of last ref char to align to (excl)
 	size_t              rdgap_;  // max # gaps in read
 	size_t              rfgap_;  // max # gaps in reference
 	bool                enable8_;// enable 8-bit sse

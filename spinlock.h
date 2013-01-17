@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -36,7 +36,9 @@
 
 #if defined(__GNUC__)
 #if defined(__x86_64__) || defined(__i386__)
+#ifdef TRY_SPINLOCK
 #define USE_SPINLOCK
+#endif
 #endif
 #endif
 

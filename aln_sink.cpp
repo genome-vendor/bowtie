@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -590,34 +590,15 @@ int AlnSinkWrap::nextRead(
 	assert(!init_);
 	assert(rd1 != NULL || rd2 != NULL);
 	init_ = true;
-	bool same = sameRead(rd1, rd2, qualitiesMatter);
 	// Keep copy of new read, so that we can compare it with the
 	// next one
 	if(rd1 != NULL) {
-		//rd1buf_ = *rd1;
-		//rd1_ = &rd1buf_;
 		rd1_ = rd1;
 	} else rd1_ = NULL;
 	if(rd2 != NULL) {
-		//rd2buf_ = *rd2;
-		//rd2_ = &rd2buf_;
 		rd2_ = rd2;
 	} else rd2_ = NULL;
 	rdid_ = rdid;
-	if(same) {
-#if 0
-		if(short_) {
-			// We were short circuited, so we start from the
-			// beginning of the short-circuited stage
-			if(lastStage_ > -1) return lastStage_ + 1;
-		} else {
-			// We were not short circuited, so we can skip the read
-			// entirely
-			return -1;
-		}
-#endif
-		// don't skip anything.  Need to think harder about how to do this.
-	}
 	// Caller must now align the read
 	maxed1_ = false;
 	maxed2_ = false;
@@ -676,6 +657,7 @@ void AlnSinkWrap::finishRead(
 	RandomSource&      rnd,         // pseudo-random generator
 	ReportingMetrics&  met,         // reporting metrics
 	const PerReadMetrics& prm,      // per-read metrics
+	const Scoring& sc,              // scoring scheme
 	bool suppressSeedSummary,       // = true
 	bool suppressAlignments)        // = false
 {
@@ -785,6 +767,7 @@ void AlnSinkWrap::finishRead(
 			assert(!select1_.empty());
 			g_.reportHits(
 				obuf_,
+				staln_,
 				threadid_,
 				rd1_,
 				rd2_,
@@ -800,7 +783,8 @@ void AlnSinkWrap::finishRead(
 				&flags1,
 				&flags2,
 				prm,
-				mapq_);
+				mapq_,
+				sc);
 			if(pairMax) {
 				met.nconcord_rep++;
 			} else {
@@ -874,6 +858,7 @@ void AlnSinkWrap::finishRead(
 			assert(!select1_.empty());
 			g_.reportHits(
 				obuf_,
+				staln_,
 				threadid_,
 				rd1_,
 				rd2_,
@@ -889,7 +874,8 @@ void AlnSinkWrap::finishRead(
 				&flags1,
 				&flags2,
 				prm,
-				mapq_);
+				mapq_,
+				sc);
 			met.nconcord_0++;
 			met.ndiscord++;
 			init_ = false;
@@ -1085,6 +1071,7 @@ void AlnSinkWrap::finishRead(
 			assert(!select1_.empty());
 			g_.reportHits(
 				obuf_,
+				staln_,
 				threadid_,
 				rd1_,
 				repRs2 != NULL ? rd2_ : NULL,
@@ -1100,7 +1087,8 @@ void AlnSinkWrap::finishRead(
 				&flags1,
 				repRs2 != NULL ? &flags2 : NULL,
 				prm,
-				mapq_);
+				mapq_,
+				sc);
 			assert_lt(select1_[0], rs1u_.size());
 			refid = rs1u_[select1_[0]].refid();
 			refoff = rs1u_[select1_[0]].refoff();
@@ -1114,6 +1102,7 @@ void AlnSinkWrap::finishRead(
 			assert(!select2_.empty());
 			g_.reportHits(
 				obuf_,
+				staln_,
 				threadid_,
 				rd2_,
 				repRs1 != NULL ? rd1_ : NULL,
@@ -1129,7 +1118,8 @@ void AlnSinkWrap::finishRead(
 				&flags2,
 				repRs1 != NULL ? &flags1 : NULL,
 				prm,
-				mapq_);
+				mapq_,
+				sc);
 			assert_lt(select2_[0], rs2u_.size());
 			refid = rs2u_[select2_[0]].refid();
 			refoff = rs2u_[select2_[0]].refoff();
@@ -1166,6 +1156,7 @@ void AlnSinkWrap::finishRead(
 				(repRs2 != NULL) ? repRs2->fw() : false); // opp fw
 			g_.reportUnaligned(
 				obuf_,      // string to write output to
+				staln_,
 				threadid_,
 				rd1_,    // read 1
 				NULL,    // read 2
@@ -1175,8 +1166,9 @@ void AlnSinkWrap::finishRead(
 				ssm2,
 				&flags1, // flags 1
 				NULL,    // flags 2
-				prm,
+				prm,     // per-read metrics
 				mapq_,   // MAPQ calculator
+				sc,      // scoring scheme
 				true);   // get lock?
 		}
 		if(rd2_ != NULL && nunpair2 == 0) {
@@ -1210,6 +1202,7 @@ void AlnSinkWrap::finishRead(
 				(repRs1 != NULL) ? repRs1->fw() : false); // opp fw
 			g_.reportUnaligned(
 				obuf_,      // string to write output to
+				staln_,
 				threadid_,
 				rd2_,    // read 1
 				NULL,    // read 2
@@ -1219,13 +1212,13 @@ void AlnSinkWrap::finishRead(
 				ssm2,
 				&flags2, // flags 1
 				NULL,    // flags 2
-				prm,
+				prm,     // per-read metrics
 				mapq_,   // MAPQ calculator
+				sc,      // scoring scheme
 				true);   // get lock?
 		}
 	} // if(suppress alignments)
 	init_ = false;
-	//g_.outq().finishRead(obuf_, rdid_, threadid_);
 	return;
 }
 
@@ -1253,7 +1246,6 @@ bool AlnSinkWrap::report(
 	bool one = (rs1 != NULL);
 	const AlnRes* rsa = one ? rs1 : rs2;
 	const AlnRes* rsb = one ? rs2 : rs1;
-	//assert(!st_.done());
 	if(paired) {
 		assert(readIsPair());
 		st_.foundConcordant();
@@ -1310,8 +1302,6 @@ bool AlnSinkWrap::prepareDiscordants() {
 		assert(rs2_.empty());
 		rs1_.push_back(rs1u_[0]);
 		rs2_.push_back(rs2u_[0]);
-		//rs1u_.clear();
-		//rs2u_.clear();
 		return true;
 	}
 	return false;
@@ -1357,8 +1347,27 @@ size_t AlnSinkWrap::selectByScore(
 		}
 		buf[i].second = i; // original offset
 	}
-	buf.sort(); buf.reverse();
-	for(size_t i = 0; i < num; i++) { select[i] = selectBuf_[i].second; }
+	buf.sort(); buf.reverse(); // sort in descending order by score
+	
+	// Randomize streaks of alignments that are equal by score
+	size_t streak = 0;
+	for(size_t i = 1; i < buf.size(); i++) {
+		if(buf[i].first == buf[i-1].first) {
+			if(streak == 0) { streak = 1; }
+			streak++;
+		} else {
+			if(streak > 1) {
+				assert_geq(i, streak);
+				buf.shufflePortion(i-streak, streak, rnd);
+			}
+			streak = 0;
+		}
+	}
+	if(streak > 1) {
+		buf.shufflePortion(buf.size() - streak, streak, rnd);
+	}
+	
+	for(size_t i = 0; i < num; i++) { select[i] = buf[i].second; }
 	// Returns index of the representative alignment, but in 'select' also
 	// returns the indexes of the next best selected alignments in order by
 	// score.
@@ -1626,6 +1635,7 @@ void AlnSink::appendSeedSummary(
  */
 void AlnSinkSam::appendMate(
 	BTString&     o,           // append to this string
+	StackedAln&   staln,       // store stacked alignment struct here
 	const Read&   rd,
 	const Read*   rdo,
 	const TReadId rdid,
@@ -1636,14 +1646,16 @@ void AlnSinkSam::appendMate(
 	const SeedAlSumm& ssmo,
 	const AlnFlags& flags,
 	const PerReadMetrics& prm,
-	const Mapq& mapqCalc)
+	const Mapq& mapqCalc,
+	const Scoring& sc)
 {
 	if(rs == NULL && samc_.omitUnalignedReads()) {
 		return;
 	}
 	char buf[1024];
-	StackedAln staln;
+	char mapqInps[1024];
 	if(rs != NULL) {
+		staln.reset();
 		rs->initStacked(rd, staln);
 		staln.leftAlign(false /* not past MMs */);
 	}
@@ -1720,11 +1732,11 @@ void AlnSinkSam::appendMate(
 		o.append('\t');
 	}
 	// MAPQ
-	mapqInps_[0] = '\0';
+	mapqInps[0] = '\0';
 	if(rs != NULL) {
 		itoa10<TMapq>(mapqCalc.mapq(
 			summ, flags, rd.mate < 2, rd.length(),
-			rdo == NULL ? 0 : rdo->length(), mapqInps_), buf);
+			rdo == NULL ? 0 : rdo->length(), mapqInps), buf);
 		o.append(buf);
 		o.append('\t');
 	} else {
@@ -1832,7 +1844,8 @@ void AlnSinkSam::appendMate(
 			summ,        // summary of alignments for this read
 			ssm,         // seed alignment summary
 			prm,         // per-read metrics
-			mapqInps_);  // inputs to MAPQ calculation
+			sc,          // scoring scheme
+			mapqInps);   // inputs to MAPQ calculation
 	} else {
 		samc_.printEmptyOptFlags(
 			o,           // output buffer
@@ -1841,7 +1854,8 @@ void AlnSinkSam::appendMate(
 			flags,       // alignment flags
 			summ,        // summary of alignments for this read
 			ssm,         // seed alignment summary
-			prm);        // per-read metrics
+			prm,         // per-read metrics
+			sc);         // scoring scheme
 	}
 	o.append('\n');
 }

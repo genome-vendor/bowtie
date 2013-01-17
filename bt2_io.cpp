@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -60,32 +60,32 @@ void Ebwt::readIntoMemory(
 		// Initialize our primary and secondary input-stream fields
 		if(_in1 != -1) close(_in1);
 		if(_verbose || startVerbose) {
-			cerr << "Opening \"" << _in1Str << "\"" << endl;
+			cerr << "Opening \"" << _in1Str.c_str() << "\"" << endl;
 		}
 		if((_in1 = open(_in1Str.c_str(), O_RDONLY)) < 0) {
-			cerr << "Could not open index file " << _in1Str << endl;
+			cerr << "Could not open index file " << _in1Str.c_str() << endl;
 		}
 		if(loadSASamp) {
 			if(_in2 != -1) close(_in2);
 			if(_verbose || startVerbose) {
-				cerr << "Opening \"" << _in2Str << "\"" << endl;
+				cerr << "Opening \"" << _in2Str.c_str() << "\"" << endl;
 			}
 			if((_in2 = open(_in2Str.c_str(), O_RDONLY)) < 0) {
-				cerr << "Could not open index file " << _in2Str << endl;
+				cerr << "Could not open index file " << _in2Str.c_str() << endl;
 			}
 		}
 #else
 		// Initialize our primary and secondary input-stream fields
 		if(_in1 != NULL) fclose(_in1);
-		if(_verbose || startVerbose) cerr << "Opening \"" << _in1Str << "\"" << endl;
+		if(_verbose || startVerbose) cerr << "Opening \"" << _in1Str.c_str() << "\"" << endl;
 		if((_in1 = fopen(_in1Str.c_str(), "rb")) == NULL) {
-			cerr << "Could not open index file " << _in1Str << endl;
+			cerr << "Could not open index file " << _in1Str.c_str() << endl;
 		}
 		if(loadSASamp) {
 			if(_in2 != NULL) fclose(_in2);
-			if(_verbose || startVerbose) cerr << "Opening \"" << _in2Str << "\"" << endl;
+			if(_verbose || startVerbose) cerr << "Opening \"" << _in2Str.c_str() << "\"" << endl;
 			if((_in2 = fopen(_in2Str.c_str(), "rb")) == NULL) {
-				cerr << "Could not open index file " << _in2Str << endl;
+				cerr << "Could not open index file " << _in2Str.c_str() << endl;
 			}
 		}
 #endif
@@ -622,16 +622,6 @@ void Ebwt::readIntoMemory(
 						}
 					}
 				}
-#if 0
-				{
-					ASSERT_ONLY(Bitset offsSeen(len+1));
-					for(uint32_t i = 0; i < offsLenSampled; i++) {
-						assert(!offsSeen.test(this->offs()[i]));
-						ASSERT_ONLY(offsSeen.set(this->offs()[i]));
-						assert_leq(this->offs()[i], len);
-					}
-				}
-#endif
 #ifdef BOWTIE_SHARED_MEM				
 				if(useShmem_) NOTIFY_SHARED(offs(), offsLenSampled*4);
 #endif

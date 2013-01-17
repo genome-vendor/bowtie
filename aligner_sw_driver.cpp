@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -96,14 +96,15 @@ bool SwDriver::eeSaTups(
 	bool firstEe = true;
     bool done = false;
 	if(tot > 0) {
+		bool fwFirst = true;
         // Pick fw / rc to go first in a weighted random fashion
-		uint32_t rn = rnd.nextU32() % (uint32_t)tot;
+		uint32_t rn32 = rnd.nextU32();
+		uint32_t rn = rn32 % (uint32_t)tot;
+		if(rn >= sh.exactFwEEHit().size()) {
+			fwFirst = false;
+		}
 		for(int fwi = 0; fwi < 2 && !done; fwi++) {
-			bool fw = (fwi == 0);
-			if(rn >= sh.exactFwEEHit().size()) {
-                // Picked RC first
-				fw = !fw;
-			}
+			bool fw = ((fwi == 0) == fwFirst);
 			EEHit hit = fw ? sh.exactFwEEHit() : sh.exactRcEEHit();
 			if(hit.empty()) {
 				continue;
@@ -170,13 +171,17 @@ bool SwDriver::eeSaTups(
                     rands_.expand();
                     rands_.back().init(width, all);
                     gws_.expand();
+					SARangeWithOffs<TSlice> sa;
+					sa.topf = satpos_.back().sat.topf;
+					sa.len = satpos_.back().sat.key.len;
+					sa.offs = satpos_.back().sat.offs;
                     gws_.back().init(
                         ebwt,               // forward Bowtie index
                         ref,                // reference sequences
-                        satpos_.back().sat, // SATuple
+                        sa,                 // SATuple
                         rnd,                // pseudo-random generator
                         wlm);               // metrics
-                    assert(gws_.back().repOk());
+                    assert(gws_.back().repOk(sa));
                     nelt_out += width;
                     if(nelt_out >= maxelt) {
                         done = true;
@@ -187,7 +192,7 @@ bool SwDriver::eeSaTups(
 	}
 	succ = false;
 	if(!done && !sh.mm1EEHits().empty()) {
-		sh.sort1mmEe();
+		sh.sort1mmEe(rnd);
 		size_t sz = sh.mm1EEHits().size();
 		for(size_t i = 0; i < sz && !done; i++) {
 			EEHit hit = sh.mm1EEHits()[i];
@@ -251,13 +256,17 @@ bool SwDriver::eeSaTups(
                 rands_.expand();
                 rands_.back().init(width, all);
                 gws_.expand();
+				SARangeWithOffs<TSlice> sa;
+				sa.topf = satpos_.back().sat.topf;
+				sa.len = satpos_.back().sat.key.len;
+				sa.offs = satpos_.back().sat.offs;
                 gws_.back().init(
-                    ebwt,               // forward Bowtie index
-                    ref,                // reference sequences
-                    satpos_.back().sat, // SATuple
-                    rnd,                // pseudo-random generator
-                    wlm);               // metrics
-                assert(gws_.back().repOk());
+                    ebwt, // forward Bowtie index
+                    ref,  // reference sequences
+                    sa,   // SATuple
+                    rnd,  // pseudo-random generator
+                    wlm); // metrics
+                assert(gws_.back().repOk(sa));
                 nelt_out += width;
                 if(nelt_out >= maxelt) {
                     done = true;
@@ -590,12 +599,16 @@ void SwDriver::prioritizeSATups(
 		rands_.ensure(nrange);
 		for(size_t i = 0; i < nrange; i++) {
 			gws_.expand();
+			SARangeWithOffs<TSlice> sa;
+			sa.topf = satpos_.back().sat.topf;
+			sa.len = satpos_.back().sat.key.len;
+			sa.offs = satpos_.back().sat.offs;
 			gws_.back().init(
-				ebwtFw,         // forward Bowtie index
-				ref,            // reference sequences
-				satpos_[i].sat, // SA tuples: ref hit, salist range
-				rnd,            // pseudo-random generator
-				wlm);           // metrics
+				ebwtFw, // forward Bowtie index
+				ref,    // reference sequences
+				sa,     // SA tuples: ref hit, salist range
+				rnd,    // pseudo-random generator
+				wlm);   // metrics
 			assert(gws_.back().initialized());
 			rands_.expand();
 			rands_.back().init(satpos_[i].sat.size(), all);
@@ -631,12 +644,16 @@ void SwDriver::prioritizeSATups(
 		satpos_.expand();
 		satpos_.back() = satpos2_[j];
 		gws_.expand();
+		SARangeWithOffs<TSlice> sa;
+		sa.topf = satpos_.back().sat.topf;
+		sa.len = satpos_.back().sat.key.len;
+		sa.offs = satpos_.back().sat.offs;
 		gws_.back().init(
-			ebwtFw,             // forward Bowtie index
-			ref,                // reference sequences
-			satpos_.back().sat, // SA tuples: ref hit, salist range
-			rnd,                // pseudo-random generator
-			wlm);               // metrics
+			ebwtFw, // forward Bowtie index
+			ref,    // reference sequences
+			sa,     // SA tuples: ref hit, salist range
+			rnd,    // pseudo-random generator
+			wlm);   // metrics
 		assert(gws_.back().initialized());
 		rands_.expand();
 		rands_.back().init(satpos_.back().sat.size(), all);
@@ -677,22 +694,26 @@ void SwDriver::prioritizeSATups(
 			rowsamp_.finishedRange(ri - nsmall);
 		}
 		// Add the element to the satpos_ list
-		SATuple sa;
+		SATuple sat;
 		TSlice o;
 		o.init(satpos2_[ri].sat.offs, r, r+1);
-		sa.init(satpos2_[ri].sat.key, satpos2_[ri].sat.topf + r, 0xffffffff, o);
+		sat.init(satpos2_[ri].sat.key, satpos2_[ri].sat.topf + r, 0xffffffff, o);
 		satpos_.expand();
-		satpos_.back().sat = sa;
+		satpos_.back().sat = sat;
 		satpos_.back().origSz = satpos2_[ri].origSz;
 		satpos_.back().pos = satpos2_[ri].pos;
 		// Initialize GroupWalk object
 		gws_.expand();
+		SARangeWithOffs<TSlice> sa;
+		sa.topf = sat.topf;
+		sa.len = sat.key.len;
+		sa.offs = sat.offs;
 		gws_.back().init(
-			ebwtFw,             // forward Bowtie index
-			ref,                // reference sequences
-			satpos_.back().sat, // SA tuples: ref hit, salist range
-			rnd,                // pseudo-random generator
-			wlm);               // metrics
+			ebwtFw, // forward Bowtie index
+			ref,    // reference sequences
+			sa,     // SA tuples: ref hit, salist range
+			rnd,    // pseudo-random generator
+			wlm);   // metrics
 		assert(gws_.back().initialized());
 		// Initialize random selector
 		rands_.expand();
@@ -788,6 +809,7 @@ int SwDriver::extendSeeds(
 	size_t nelt = 0, neltLeft = 0;
 	size_t rows = rdlen;
 	size_t eltsDone = 0;
+	// cerr << "===" << endl;
 	while(true) {
 		if(eeMode) {
 			if(firstEe) {
@@ -889,7 +911,12 @@ int SwDriver::extendSeeds(
 				// Resolve next element offset
 				WalkResult wr;
 				uint32_t elt = rands_[i].next(rnd);
-				gws_[i].advanceElement(elt, wr, wlm, prm);
+				//cerr << "elt=" << elt << endl;
+				SARangeWithOffs<TSlice> sa;
+				sa.topf = satpos_[i].sat.topf;
+				sa.len = satpos_[i].sat.key.len;
+				sa.offs = satpos_[i].sat.offs;
+				gws_[i].advanceElement(elt, ebwtFw, ref, sa, gwstate_, wr, wlm, prm);
 				eltsDone++;
 				if(!eeMode) {
 					assert_gt(neltLeft, 0);
@@ -968,6 +995,7 @@ int SwDriver::extendSeeds(
 					resEe_.alres.setShape(
 						refcoord.ref(),  // ref id
 						refcoord.off(),  // 0-based ref offset
+						tlen,            // length of reference
 						fw,              // aligned to Watson?
 						rdlen,           // read length
 						true,            // pretrim soft?
@@ -1093,7 +1121,8 @@ int SwDriver::extendSeeds(
 					seenDiags1_.add(refival);
 					// Now fill the dynamic programming matrix and return true iff
 					// there is at least one valid alignment
-					found = swa.align(rnd);
+					TAlScore bestCell = std::numeric_limits<TAlScore>::min();
+					found = swa.align(rnd, bestCell);
 					swmSeed.tallyGappedDp(readGaps, refGaps);
 					prm.nExDps++;
 					if(!found) {
@@ -1101,6 +1130,9 @@ int SwDriver::extendSeeds(
 						prm.nDpFail++;
 						if(prm.nDpFail >= maxDpStreak) {
 							return EXTEND_EXCEEDED_SOFT_LIMIT;
+						}
+						if(bestCell > std::numeric_limits<TAlScore>::min() && bestCell > prm.bestLtMinscMate1) {
+							prm.bestLtMinscMate1 = bestCell;
 						}
 						continue; // Look for more anchor alignments
 					} else {
@@ -1580,7 +1612,11 @@ int SwDriver::extendSeedsPaired(
 				// Resolve next element offset
 				WalkResult wr;
 				uint32_t elt = rands_[i].next(rnd);
-				gws_[i].advanceElement(elt, wr, wlm, prm);
+				SARangeWithOffs<TSlice> sa;
+				sa.topf = satpos_[i].sat.topf;
+				sa.len = satpos_[i].sat.key.len;
+				sa.offs = satpos_[i].sat.offs;
+				gws_[i].advanceElement(elt, ebwtFw, ref, sa, gwstate_, wr, wlm, prm);
 				eltsDone++;
 				assert_gt(neltLeft, 0);
 				neltLeft--;
@@ -1663,6 +1699,7 @@ int SwDriver::extendSeedsPaired(
 					resEe_.alres.setShape(
 						refcoord.ref(),  // ref id
 						refcoord.off(),  // 0-based ref offset
+						tlen,            // reference length
 						fw,              // aligned to Watson?
 						rdlen,           // read length
 						true,            // pretrim soft?
@@ -1777,12 +1814,21 @@ int SwDriver::extendSeedsPaired(
 					seenDiags.add(refival);
 					// Now fill the dynamic programming matrix and return true iff
 					// there is at least one valid alignment
-					found = swa.align(rnd);
+					TAlScore bestCell = std::numeric_limits<TAlScore>::min();
+					found = swa.align(rnd, bestCell);
 					swmSeed.tallyGappedDp(readGaps, refGaps);
 					prm.nExDps++;
 					prm.nDpFail++;    // failed until proven successful
 					prm.nExDpFails++; // failed until proven successful
 					if(!found) {
+						TAlScore bestLast = anchor1 ? prm.bestLtMinscMate1 : prm.bestLtMinscMate2;
+						if(bestCell > std::numeric_limits<TAlScore>::min() && bestCell > bestLast) {
+							if(anchor1) {
+								prm.bestLtMinscMate1 = bestCell;
+							} else {
+								prm.bestLtMinscMate2 = bestCell;
+							}
+						}
 						continue; // Look for more anchor alignments
 					}
 				}
@@ -2013,9 +2059,20 @@ int SwDriver::extendSeedsPaired(
 
 							// Now fill the dynamic programming matrix, return true
 							// iff there is at least one valid alignment
-							foundMate = oswa.align(rnd);
+							TAlScore bestCell = std::numeric_limits<TAlScore>::min();
+							foundMate = oswa.align(rnd, bestCell);
 							prm.nMateDps++;
 							swmMate.tallyGappedDp(oreadGaps, orefGaps);
+							if(!foundMate) {
+								TAlScore bestLast = anchor1 ? prm.bestLtMinscMate2 : prm.bestLtMinscMate1;
+								if(bestCell > std::numeric_limits<TAlScore>::min() && bestCell > bestLast) {
+									if(anchor1) {
+										prm.bestLtMinscMate2 = bestCell;
+									} else {
+										prm.bestLtMinscMate1 = bestCell;
+									}
+								}
+							}
 						}
 						bool didAnchor = false;
 						do {
@@ -2106,7 +2163,7 @@ int SwDriver::extendSeedsPaired(
 									assert(!msink->maxed());
 									assert(!msink->state().done());
 									bool doneUnpaired = false;
-									if(mixed || discord) {
+									//if(mixed || discord) {
 										// Report alignment for mate #1 as an
 										// unpaired alignment.
 										if(!anchor1 || !didAnchor) {
@@ -2137,7 +2194,7 @@ int SwDriver::extendSeedsPaired(
 												}
 											}
 										}
-									} // if(mixed || discord)
+									//} // if(mixed || discord)
 									bool donePaired = false;
 									if(pairCl != PE_ALS_DISCORD) {
 										foundConcordant = true;

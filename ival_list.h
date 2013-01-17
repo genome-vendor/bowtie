@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -86,6 +86,7 @@ public:
 		unsorted_.clear();
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that this interval list is internally consistent.
 	 */
@@ -93,6 +94,7 @@ public:
 		assert_eq(sorted_.size(), sortedLhs_.size());
 		return true;
 	}
+#endif
 	
 	/**
 	 * Remove all ranges from the list.
@@ -233,6 +235,7 @@ public:
 		bins_[bin].add(i);
 	}
 
+#ifndef NDEBUG
 	/**
 	 * Check that this interval list is internally consistent.
 	 */
@@ -242,6 +245,7 @@ public:
 		}
 		return true;
 	}
+#endif
 	
 	/**
 	 * Remove all ranges from the list.

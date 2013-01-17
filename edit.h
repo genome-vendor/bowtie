@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -98,7 +98,12 @@ struct Edit {
 		qchr = qc;
 		type = ty;
 		pos = po;
-		pos2 = std::numeric_limits<uint32_t>::max() >> 1;
+		if(qc == '-') {
+			// Read gap
+			pos2 = std::numeric_limits<uint32_t>::max() >> 1;
+		} else {
+			pos2 = std::numeric_limits<uint32_t>::max();
+		}
 		if(!chrs) {
 			assert_range(0, 4, (int)chr);
 			assert_range(0, 4, (int)qchr);
@@ -200,14 +205,19 @@ struct Edit {
 	 * Flip all the edits.pos fields so that they're with respect to
 	 * the other end of the read (of length 'sz').
 	 */
-	static void invertPoss(EList<Edit>& edits, size_t sz, size_t ei, size_t en);
+	static void invertPoss(
+		EList<Edit>& edits,
+		size_t sz,
+		size_t ei,
+		size_t en,
+		bool sort = false);
 
 	/**
 	 * Flip all the edits.pos fields so that they're with respect to
 	 * the other end of the read (of length 'sz').
 	 */
-	static void invertPoss(EList<Edit>& edits, size_t sz) {
-		invertPoss(edits, sz, 0, edits.size());
+	static void invertPoss(EList<Edit>& edits, size_t sz, bool sort = false) {
+		invertPoss(edits, sz, 0, edits.size(), sort);
 	}
 	
 	/**
@@ -276,6 +286,7 @@ struct Edit {
 		const BTDnaString& read,
 		const EList<Edit>& edits);
 
+#ifndef NDEBUG
 	bool repOk() const;
 
 	/**
@@ -289,6 +300,7 @@ struct Edit {
 		bool fw = true,
 		size_t trim5 = 0,
 		size_t trim3 = 0);
+#endif
 
 	uint8_t  chr;  // reference character involved (for subst and ins)
 	uint8_t  qchr; // read character involved (for subst and del)

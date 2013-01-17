@@ -2,7 +2,7 @@
 set -e
 
 PKG="bowtie"
-VER="2.0.2"
+VER="2.0.5"
 PKG_DIR=/usr/lib/${PKG}${VER}
 
 if [ \( "$1" = "upgrade" -o "$1" = "remove" \) -a -L /usr/bin/bowtie2 ]; then

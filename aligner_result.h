@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -388,6 +388,7 @@ public:
 		return pairing_ < ALN_FLAG_PAIR_UNPAIRED;
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that the flags are internally consistent.
 	 */
@@ -395,7 +396,8 @@ public:
 		assert(partOfPair() || !maxedPair_);
 		return true;
 	}
-	
+#endif
+
 	/**
 	 * Print out string representation of YF:i flag for indicating whether and
 	 * why the mate was filtered.
@@ -724,6 +726,7 @@ public:
 	/**
 	 * Check internal consistency.
 	 */
+#ifndef NDEBUG
 	bool repOk() const {
 		if(inited_) {
 			assert_eq(stackRef_.size(), stackRead_.size());
@@ -731,6 +734,7 @@ public:
 		}
 		return true;
 	}
+#endif
 
 protected:
 
@@ -821,8 +825,8 @@ public:
 		assert(shapeSet_);
 		assert_gt(rdlen_, 0);
 		assert_gt(rdrows_, 0);
-		Edit::invertPoss(ned_, rdexrows_);
-		Edit::invertPoss(aed_, rdexrows_);
+		Edit::invertPoss(ned_, rdexrows_, false);
+		Edit::invertPoss(aed_, rdexrows_, false);
 	}
 	
 	/**
@@ -910,6 +914,7 @@ public:
 	void setShape(
 		TRefId  id,          // id of reference aligned to
 		TRefOff off,         // offset of first aligned char into ref seq
+		TRefOff reflen,      // length of reference sequence aligned to
 		bool    fw,          // aligned to Watson strand?
 		size_t  rdlen,       // length of read after hard trimming, before soft
 		bool    pretrimSoft, // whether trimming prior to alignment was soft
@@ -1003,6 +1008,13 @@ public:
 	size_t refExtent() const {
 		return rfextent_;
 	}
+	
+	/**
+	 * Return length of reference sequence aligned to.
+	 */
+	TRefOff reflen() const {
+		return reflen_;
+	}
 
 	/**
 	 * Return the number of reference nucleotides in the alignment (i.e. the
@@ -1057,11 +1069,15 @@ public:
 		o << "(" << refcoord_.ref() << "," << refcoord_.off() << ")" << std::endl;
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that alignment score is internally consistent.
 	 */
 	bool repOk() const {
 		assert(refcoord_.repOk());
+		if(shapeSet_) {
+			assert_lt(refoff(), reflen_);
+		}
 		assert(refival_.repOk());
 		assert(VALID_AL_SCORE(score_) || ned_.empty());
 		assert(VALID_AL_SCORE(score_) || aed_.empty());
@@ -1081,6 +1097,7 @@ public:
 		       refcoord_.fw(), trimmed5p(true), trimmed3p(true)));
 		return repOk();
 	}
+#endif
 
 #ifndef NDEBUG
 	/**
@@ -1325,8 +1342,13 @@ public:
 		size_t             rdlen,           // # chars after hard trimming
 		AlnScore           score,           // alignment score
 		const EList<Edit>* ned,             // nucleotide edits
+		size_t             ned_i,           // first position to copy
+		size_t             ned_n,           // # positions to copy
 		const EList<Edit>* aed,             // ambiguous base resolutions
+		size_t             aed_i,           // first position to copy
+		size_t             aed_n,           // # positions to copy
 		Coord              refcoord,        // leftmost ref pos of 1st al char
+		TRefOff            reflen,           // length of the reference
 		int                seedmms      = -1,// # seed mms allowed
 		int                seedlen      = -1,// seed length
 		int                seedival     = -1,// space between seeds
@@ -1429,6 +1451,7 @@ public:
 			ned_          == o.ned_ &&
 			aed_          == o.aed_ &&
 			refcoord_     == o.refcoord_ &&
+			reflen_       == o.reflen_ &&
 			refival_      == o.refival_ &&
 			rdextent_     == o.rdextent_ &&
 			rdexrows_     == o.rdexrows_ &&
@@ -1460,7 +1483,7 @@ public:
 		size_t trimRH = trimmed3p(false);
 		size_t len_trimmed = rd.length() - trimLS - trimRS;
 		if(!fw()) {
-			Edit::invertPoss(const_cast<EList<Edit>&>(ned_), len_trimmed);
+			Edit::invertPoss(const_cast<EList<Edit>&>(ned_), len_trimmed, false);
 			swap(trimLS, trimRS);
 			swap(trimLH, trimRH);
 		}
@@ -1468,7 +1491,7 @@ public:
 			fw() ? rd.patFw : rd.patRc,
 			ned_, trimLS, trimLH, trimRS, trimRH);
 		if(!fw()) {
-			Edit::invertPoss(const_cast<EList<Edit>&>(ned_), len_trimmed);
+			Edit::invertPoss(const_cast<EList<Edit>&>(ned_), len_trimmed, false);
 		}
 	}
 
@@ -1494,6 +1517,7 @@ protected:
 	EList<Edit> ned_;          // base edits
 	EList<Edit> aed_;          // ambiguous base resolutions
 	Coord       refcoord_;     // ref coordinates (seq idx, offset, orient)
+	TRefOff     reflen_;       // reference length
 	Interval    refival_;      // ref interval (coord + length)
 	size_t      rdextent_;     // number of read chars involved in alignment
 	size_t      rdexrows_;     // number of read rows involved in alignment
@@ -1785,6 +1809,7 @@ public:
 		return !VALID_AL_SCORE(best1_);
 	}
 	
+#ifndef NDEBUG
 	/**
 	 * Check that the summary is internally consistent.
 	 */
@@ -1795,6 +1820,7 @@ public:
 		assert(other2_ != 0 || !VALID_AL_SCORE(secbest2_));
 		return true;
 	}
+#endif
 	
 	AlnScore best1()         const { return best1_;         }
 	AlnScore secbest1()      const { return secbest1_;      }

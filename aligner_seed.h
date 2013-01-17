@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -463,12 +463,14 @@ struct InstantiatedSeed {
 	// Seed this was instantiated from
 	Seed s;
 	
+#ifndef NDEBUG
 	/**
 	 * Check that InstantiatedSeed is internally consistent.
 	 */
 	bool repOk() const {
 		return true;
 	}
+#endif
 };
 
 /**
@@ -566,6 +568,7 @@ struct EEHit {
 	 */
 	uint32_t size() const { return bot - top; }
 	
+#ifndef NDEBUG
 	/**
 	 * Check that hit is sane w/r/t read.
 	 */
@@ -579,6 +582,7 @@ struct EEHit {
 		}
 		return true;
 	}
+#endif
 	
 	uint32_t top;
 	uint32_t bot;
@@ -801,10 +805,36 @@ public:
 	}
 	
 	/**
-	 * Return true iff this batch of seed results is very repetitive.  We say
+	 * Return average number of hits per seed.
 	 */
 	float averageHitsPerSeed() const {
 		return (float)numElts_ / (float)nonzTot_;
+	}
+	
+	/**
+	 * Return median of all the non-zero per-seed # hits
+	 */
+	float medianHitsPerSeed() const {
+		EList<size_t>& median = const_cast<EList<size_t>&>(tmpMedian_);
+		median.clear();
+		for(size_t i = 0; i < numOffs_; i++) {
+			if(hitsFw_[i].valid() && hitsFw_[i].numElts() > 0) {
+				median.push_back(hitsFw_[i].numElts());
+			}
+			if(hitsRc_[i].valid() && hitsRc_[i].numElts() > 0) {
+				median.push_back(hitsRc_[i].numElts());
+			}
+		}
+		if(tmpMedian_.empty()) {
+			return 0.0f;
+		}
+		median.sort();
+		float med1 = (float)median[tmpMedian_.size() >> 1];
+		float med2 = med1;
+		if((median.size() & 1) == 0) {
+			med2 = (float)median[(tmpMedian_.size() >> 1) - 1];
+		}
+		return med1 + med2 * 0.5f;
 	}
 	
 	/**
@@ -901,6 +931,7 @@ public:
 	 */
 	const Read& read() const { return *read_; }
 	
+#ifndef NDEBUG
 	/**
 	 * Check that this SeedResults is internally consistent.
 	 */
@@ -934,6 +965,7 @@ public:
 		}
 		return true;
 	}
+#endif
 	
 	/**
 	 * Populate rankOffs_ and rankFws_ with the list of QVals that need to be
@@ -1125,9 +1157,25 @@ public:
 	 * Sort the end-to-end 1-mismatch alignments, prioritizing by score (higher
 	 * score = higher priority).
 	 */
-	void sort1mmEe() {
+	void sort1mmEe(RandomSource& rnd) {
 		assert(!mm1Sorted_);
 		mm1Hit_.sort();
+		size_t streak = 0;
+		for(size_t i = 1; i < mm1Hit_.size(); i++) {
+			if(mm1Hit_[i].score == mm1Hit_[i-1].score) {
+				if(streak == 0) { streak = 1; }
+				streak++;
+			} else {
+				if(streak > 1) {
+					assert_geq(i, streak);
+					mm1Hit_.shufflePortion(i-streak, streak, rnd);
+				}
+				streak = 0;
+			}
+		}
+		if(streak > 1) {
+			mm1Hit_.shufflePortion(mm1Hit_.size() - streak, streak, rnd);
+		}
 		mm1Sorted_ = true;
 	}
 	
@@ -1266,12 +1314,14 @@ protected:
 	EList<EEHit>        mm1Hit_;     // 1-mismatch end-to-end hits
 	size_t              mm1Elt_;     // number of 1-mismatch hit rows
 	bool                mm1Sorted_;  // true iff we've sorted the mm1Hit_ list
+
+	EList<size_t> tmpMedian_; // temporary storage for calculating median
 };
 
 
 // Forward decl
 class Ebwt;
-class SideLocus;
+struct SideLocus;
 
 /**
  * Encapsulates a sumamry of what the searchAllSeeds aligner did.

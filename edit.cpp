@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -47,21 +47,43 @@ void Edit::print(ostream& os, const EList<Edit>& edits, char delim) {
  * Flip all the edits.pos fields so that they're with respect to
  * the other end of the read (of length 'sz').
  */
-void Edit::invertPoss(EList<Edit>& edits, size_t sz, size_t ei, size_t en) {
+void Edit::invertPoss(
+	EList<Edit>& edits,
+	size_t sz,
+	size_t ei,
+	size_t en,
+	bool sort)
+{
 	// Invert elements
 	size_t ii = 0;
-	for(size_t i = ei; i < (ei + en)/2; i++) {
+	for(size_t i = ei; i < ei + en/2; i++) {
 		Edit tmp = edits[i];
 		edits[i] = edits[ei + en - ii - 1];
 		edits[ei + en - ii - 1] = tmp;
 		ii++;
 	}
-	// Invert all the .pos's
 	for(size_t i = ei; i < ei + en; i++) {
 		assert(edits[i].pos < sz ||
-		       (edits[i].isReadGap() && edits[i].pos == sz));
+			   (edits[i].isReadGap() && edits[i].pos == sz));
+		// Adjust pos
 		edits[i].pos =
 			(uint32_t)(sz - edits[i].pos - (edits[i].isReadGap() ? 0 : 1));
+		// Adjust pos2
+		if(edits[i].isReadGap()) {
+			int64_t pos2diff = (int64_t)(uint64_t)edits[i].pos2 - (int64_t)((uint64_t)std::numeric_limits<uint32_t>::max() >> 1);
+			int64_t pos2new = (int64_t)(uint64_t)edits[i].pos2 - 2*pos2diff;
+			assert(pos2diff == 0 || (uint32_t)pos2new != (std::numeric_limits<uint32_t>::max() >> 1));
+			edits[i].pos2 = (uint32_t)pos2new;
+		}
+	}
+	if(sort) {
+		// Edits might not necessarily be in same order after inversion
+		edits.sortPortion(ei, en);
+#ifndef NDEBUG
+		for(size_t i = ei + 1; i < ei + en; i++) {
+			assert_geq(edits[i].pos, edits[i-1].pos);
+		}
+#endif
 	}
 }
 
@@ -269,7 +291,7 @@ void Edit::toRef(
 	size_t trimEnd = fw ? trim3 : trim5;
 	assert(Edit::repOk(edits, read, fw, trim5, trim3));
 	if(!fw) {
-		invertPoss(const_cast<EList<Edit>&>(edits), read.length()-trimBeg-trimEnd);
+		invertPoss(const_cast<EList<Edit>&>(edits), read.length()-trimBeg-trimEnd, false);
 	}
 	for(size_t i = 0; i < rdlen; i++) {
 		ASSERT_ONLY(int c = read[i]);
@@ -314,10 +336,11 @@ void Edit::toRef(
 		}
 	}
 	if(!fw) {
-		invertPoss(const_cast<EList<Edit>&>(edits), read.length()-trimBeg-trimEnd);
+		invertPoss(const_cast<EList<Edit>&>(edits), read.length()-trimBeg-trimEnd, false);
 	}
 }
 
+#ifndef NDEBUG
 /**
  * Check that the edit is internally consistent.
  */
@@ -344,9 +367,8 @@ bool Edit::repOk(
 	size_t trimBeg,
 	size_t trimEnd)
 {
-#ifndef NDEBUG
 	if(!fw) {
-		invertPoss(const_cast<EList<Edit>&>(edits), s.length()-trimBeg-trimEnd);
+		invertPoss(const_cast<EList<Edit>&>(edits), s.length()-trimBeg-trimEnd, false);
 		swap(trimBeg, trimEnd);
 	}
 	for(size_t i = 0; i < edits.size(); i++) {
@@ -378,11 +400,11 @@ bool Edit::repOk(
 		}
 	}
 	if(!fw) {
-		invertPoss(const_cast<EList<Edit>&>(edits), s.length()-trimBeg-trimEnd);
+		invertPoss(const_cast<EList<Edit>&>(edits), s.length()-trimBeg-trimEnd, false);
 	}
-#endif
 	return true;
 }
+#endif
 
 /**
  * Merge second argument into the first.  Assume both are sorted to

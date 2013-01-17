@@ -400,7 +400,8 @@ instance, when seeking [structural variants].
 The expected relative orientation of the mates is set using the [`--ff`],
 [`--fr`], or [`--rf`] options.  The expected range of inter-mates distances (as
 measured from the furthest extremes of the mates; also called "outer distance")
-is set with the [`-I`] and [`-X`] options.
+is set with the [`-I`] and [`-X`] options.  Note that setting [`-I`] and [`-X`]
+far apart makes Bowtie 2 slower.  See documentation for [`-I`] and [`-X`].
 
 To declare that a pair aligns discordantly, Bowtie 2 requires that both mates
 align uniquely.  This is a conservative threshold, but this is often desirable
@@ -1520,7 +1521,15 @@ specified and a paired-end alignment consists of two 20-bp alignments in the
 appropriate orientation with a 20-bp gap between them, that alignment is
 considered valid (as long as [`-X`] is also satisfied).  A 19-bp gap would not
 be valid in that case.  If trimming options [`-3`] or [`-5`] are also used, the
-[`-I`] constraint is applied with respect to the untrimmed mates.  Default: 0.
+[`-I`] constraint is applied with respect to the untrimmed mates.
+
+The larger the difference between [`-I`] and [`-X`], the slower Bowtie 2 will
+run.  This is because larger differences bewteen [`-I`] and [`-X`] require that
+Bowtie 2 scan a larger window to determine if a concordant alignment exists.
+For typical fragment length ranges (200 to 400 nucleotides), Bowtie 2 is very
+efficient.
+
+Default: 0 (essentially imposing no minimum) 
 
 </td></tr>
 <tr><td id="bowtie2-options-X">
@@ -1538,7 +1547,15 @@ proper orientation with a 60-bp gap between them, that alignment is considered
 valid (as long as [`-I`] is also satisfied).  A 61-bp gap would not be valid in
 that case.  If trimming options [`-3`] or [`-5`] are also used, the `-X`
 constraint is applied with respect to the untrimmed mates, not the trimmed
-mates.  Default: 500.
+mates.
+
+The larger the difference between [`-I`] and [`-X`], the slower Bowtie 2 will
+run.  This is because larger differences bewteen [`-I`] and [`-X`] require that
+Bowtie 2 scan a larger window to determine if a concordant alignment exists.
+For typical fragment length ranges (200 to 400 nucleotides), Bowtie 2 is very
+efficient.
+
+Default: 500.
 
 </td></tr>
 <tr><td id="bowtie2-options-fr">
@@ -2036,7 +2053,12 @@ Each subsequnt line describes an alignment or, if the read failed to align, a
 read.  Each line is a collection of at least 12 fields separated by tabs; from
 left to right, the fields are:
 
-1.  Name of read that aligned
+1.  Name of read that aligned.
+
+    Note that the [SAM specification] disallows whitespace in the read name.
+	If the read name contains any whitespace characters, Bowtie 2 will truncate
+	the name at the first whitespace character.  This is similar to the
+	behavior of other tools.
 
 2.  Sum of all applicable flags.  Flags relevant to Bowtie are:
 
@@ -2127,8 +2149,10 @@ mate.
 8.  1-based offset into the forward reference strand where leftmost character of
 the mate's alignment occurs.  Offset is 0 if there is no mate.
 
-9.  Inferred fragment size.  Size is negative if the mate's alignment occurs
-upstream of this alignment.  Size is 0 if there is no mate.
+9.  Inferred fragment length.  Size is negative if the mate's alignment occurs
+upstream of this alignment.  Size is 0 if the mates did not align concordantly.
+However, size is non-0 if the mates aligned discordantly to the same
+chromosome.
 
 10. Read sequence (reverse-complemented if aligned to the reverse strand)
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -20,6 +20,10 @@
 #ifndef RANDOM_UTIL_H_
 #define RANDOM_UTIL_H_
 
+#include <algorithm>
+#include "random_source.h"
+#include "ds.h"
+
 /**
  * Return a random integer in [1, N].  Each time it's called it samples again
  * without replacement.  done() indicates when all elements have been given
@@ -34,18 +38,24 @@ public:
 	// A set with fewer than this many elements should kick us into swap-list
 	// mode immediately.  Otherwise we start in seen-list mode and then
 	// possibly proceed to swap-list mode later.
-	static const size_t SWAPLIST_THRESH = 128;
+	static const size_t SWAPLIST_THRESH;
 	
-	// Convert seen-list to swap-list after this many 
-	static const size_t CONVERSION_THRESH = 16;
+	// Convert seen-list to swap-list after this many entries in the seen-list.
+	static const size_t CONVERSION_THRESH;
+
+	// Convert seen-list to swap-list after this (this times n_) many entries
+	// in the seen-list.
+	static const float CONVERSION_FRAC;
 
 	Random1toN(int cat = 0) :
 		sz_(0), n_(0), cur_(0),
-		list_(SWAPLIST_THRESH, cat), seen_(CONVERSION_THRESH, cat) {}
+		list_(SWAPLIST_THRESH, cat), seen_(CONVERSION_THRESH, cat),
+		thresh_(0) {}
 	
 	Random1toN(size_t n, int cat = 0) :
 		sz_(0), n_(n), cur_(0),
-		list_(SWAPLIST_THRESH, cat), seen_(CONVERSION_THRESH, cat) {}
+		list_(SWAPLIST_THRESH, cat), seen_(CONVERSION_THRESH, cat),
+		thresh_(0) {}
 
 	/**
 	 * Initialize the set of pseudo-randoms to be given out without replacement.
@@ -57,6 +67,7 @@ public:
 		cur_ = 0;
 		list_.clear();
 		seen_.clear();
+		thresh_ = std::max(CONVERSION_THRESH, (size_t)(CONVERSION_FRAC * n));
 	}
 	
 	/**
@@ -66,6 +77,7 @@ public:
 	void reset() {
 		sz_ = n_ = cur_ = 0; swaplist_ = converted_ = false;
 		list_.clear(); seen_.clear();
+		thresh_ = 0;
 	}
 
 	/**
@@ -93,7 +105,7 @@ public:
 			// Get next pseudo-random using the swap-list
 			size_t r = cur_ + (rnd.nextU32() % (n_ - cur_));
 			if(r != cur_) {
-				swap(list_[cur_], list_[r]);
+				std::swap(list_[cur_], list_[r]);
 			}
 			return list_[cur_++];
 		} else {
@@ -117,7 +129,8 @@ public:
 			cur_++;
 			assert_leq(cur_, n_);
 			// Move on to using the swap-list?
-			if(seen_.size() >= CONVERSION_THRESH && cur_ < n_) {
+			assert_gt(thresh_, 0);
+			if(seen_.size() >= thresh_ && cur_ < n_) {
 				// Add all elements not already in the seen list to the
 				// swap-list
 				assert(!seen_.empty());
@@ -150,7 +163,7 @@ public:
 	/**
 	 * Return true iff the generator was initialized.
 	 */
-	bool inited() { return n_ > 0; }
+	bool inited() const { return n_ > 0; }
 	
 	/**
 	 * Set so that there are no pseudo-randoms remaining.
@@ -160,7 +173,7 @@ public:
 	/**
 	 * Return true iff all pseudo-randoms have already been given out.
 	 */
-	bool done() { return inited() && cur_ >= n_; }
+	bool done() const { return inited() && cur_ >= n_; }
 
 	/**
 	 * Return the total number of pseudo-randoms we are initialized to give
@@ -173,16 +186,36 @@ public:
 	 */
 	size_t left() const { return n_ - cur_; }
 
+	/**
+	 * Return the total size occupued by the Descent driver and all its
+	 * constituent parts.
+	 */
+	size_t totalSizeBytes() const {
+		return list_.totalSizeBytes() +
+		       seen_.totalSizeBytes();
+	}
+
+	/**
+	 * Return the total capacity of the Descent driver and all its constituent
+	 * parts.
+	 */
+	size_t totalCapacityBytes() const {
+		return list_.totalCapacityBytes() +
+		       seen_.totalCapacityBytes();
+	}
+
 protected:
 
-	size_t          sz_;        // domain to pick elts from
-	size_t          n_;         // number of elements in active list
-	bool            swaplist_;  // if small, use swapping
-	bool            converted_; // true iff seen-list was converted to swap-list
-	size_t          cur_;       // # times next() was called
-	EList<T> list_;             // pseudo-random swapping list
-	EList<T> seen_;             // prior to swaplist_ mode, list of
-	                            // pseudo-randoms given out
+	size_t   sz_;        // domain to pick elts from
+	size_t   n_;         // number of elements in active list
+	bool     swaplist_;  // if small, use swapping
+	bool     converted_; // true iff seen-list was converted to swap-list
+	size_t   cur_;       // # times next() was called
+	EList<T> list_;      // pseudo-random swapping list
+	EList<T> seen_;      // prior to swaplist_ mode, list of
+	                     // pseudo-randoms given out
+	size_t   thresh_;    // conversion threshold for this instantiation, which
+	                     // depends both on CONVERSION_THRESH and on n_
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -82,6 +82,6 @@ void PresetsV0::apply(
 		policy += ";IVAL=S,1,0.50";
 	}
 	else {
-		cerr << "Unknown preset: " << preset << endl;
+		cerr << "Unknown preset: " << preset.c_str() << endl;
 	}
 }

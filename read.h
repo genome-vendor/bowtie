@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+ * Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
  *
  * This file is part of Bowtie 2.
  *
@@ -25,8 +25,11 @@
 #include "ds.h"
 #include "sstring.h"
 #include "filebuf.h"
+#include "util.h"
 
 typedef uint64_t TReadId;
+typedef size_t TReadOff;
+typedef int64_t TAlScore;
 
 class HitSet;
 
@@ -34,7 +37,10 @@ class HitSet;
  * A buffer for keeping all relevant information about a single read.
  */
 struct Read {
+
 	Read() { reset(); }
+	
+	Read(const char *nm, const char *seq, const char *ql) { init(nm, seq, ql); }
 
 	void reset() {
 		rdid = 0;
@@ -42,7 +48,6 @@ struct Read {
 		alts = 0;
 		trimmed5 = trimmed3 = 0;
 		readOrigBuf.clear();
-		qualOrigBuf.clear();
 		patFw.clear();
 		patRc.clear();
 		qual.clear();
@@ -85,11 +90,9 @@ struct Read {
 	void init(
 		const char *nm,
 		const char *seq,
-		const char *ql,
-		bool col)
+		const char *ql)
 	{
 		reset();
-		color = col;
 		patFw.installChars(seq);
 		qual.install(ql);
 		for(size_t i = 0; i < patFw.length(); i++) {
@@ -269,6 +272,39 @@ struct Read {
 	}
 
 	/**
+	 * Get the nucleotide and quality value at the given offset from 5' end.
+	 * If 'fw' is false, get the reverse complement.
+	 */
+	std::pair<int, int> get(TReadOff off5p, bool fw) const {
+		assert_lt(off5p, length());
+		int c = (int)patFw[off5p];
+        int q = qual[off5p];
+        assert_geq(q, 33);
+		return make_pair((!fw && c < 4) ? (c ^ 3) : c, q - 33);
+	}
+	
+	/**
+	 * Get the nucleotide at the given offset from 5' end.
+	 * If 'fw' is false, get the reverse complement.
+	 */
+	int getc(TReadOff off5p, bool fw) const {
+		assert_lt(off5p, length());
+		int c = (int)patFw[off5p];
+		return (!fw && c < 4) ? (c ^ 3) : c;
+	}
+	
+	/**
+	 * Get the quality value at the given offset from 5' end.
+	 */
+	int getq(TReadOff off5p) const {
+		assert_lt(off5p, length());
+        int q = qual[off5p];
+        assert_geq(q, 33);
+		return q-33;
+	}
+
+#ifndef NDEBUG
+	/**
 	 * Check that read info is internally consistent.
 	 */
 	bool repOk() const {
@@ -276,6 +312,7 @@ struct Read {
 		assert_eq(qual.length(), patFw.length());
 		return true;
 	}
+#endif
 
 	BTDnaString patFw;            // forward-strand sequence
 	BTDnaString patRc;            // reverse-complement sequence
@@ -295,8 +332,6 @@ struct Read {
 
 	// For remembering the exact input text used to define a read
 	SStringExpandable<char> readOrigBuf;
-	// For when qualities are in a separate file
-	SStringExpandable<char> qualOrigBuf;
 
 	BTString name;      // read name
 	TReadId  rdid;      // 0-based id based on pair's offset in read file(s)
@@ -314,6 +349,71 @@ struct Read {
 	int      trimmed5;  // amount actually trimmed off 5' end
 	int      trimmed3;  // amount actually trimmed off 3' end
 	HitSet  *hitset;    // holds previously-found hits; for chaining
+};
+
+/**
+ * A string of FmStringOps represent a string of tasks performed by the
+ * best-first alignment search.  We model the search as a series of FM ops
+ * interspersed with reported alignments.
+ */
+struct FmStringOp {
+	bool alignment;  // true -> found an alignment
+	TAlScore pen;    // penalty of the FM op or alignment
+	size_t n;        // number of FM ops (only relevant for non-alignment)
+};
+
+/**
+ * A string that summarizes the progress of an FM-index-assistet best-first
+ * search.  Useful for trying to figure out what the aligner is spending its
+ * time doing for a given read.
+ */
+struct FmString {
+
+	/**
+	 * Add one or more FM index ops to the op string
+	 */
+	void add(bool alignment, TAlScore pen, size_t nops) {
+		if(ops.empty() || ops.back().pen != pen) {
+			ops.expand();
+			ops.back().alignment = alignment;
+			ops.back().pen = pen;
+			ops.back().n = 0;
+		}
+		ops.back().n++;
+	}
+	
+	/**
+	 * Reset FmString to uninitialized state.
+	 */
+	void reset() {
+		pen = std::numeric_limits<TAlScore>::max();
+		ops.clear();
+	}
+
+	/**
+	 * Print a :Z optional field where certain characters (whitespace, colon
+	 * and percent) are escaped using % escapes.
+	 */
+	void print(BTString& o, char *buf) const {
+		for(size_t i = 0; i < ops.size(); i++) {
+			if(i > 0) {
+				o.append(';');
+			}
+			if(ops[i].alignment) {
+				o.append("A,");
+				itoa10(ops[i].pen, buf);
+				o.append(buf);
+			} else {
+				o.append("F,");
+				itoa10(ops[i].pen, buf); o.append(buf);
+				o.append(',');
+				itoa10(ops[i].n, buf); o.append(buf);
+			}
+		}
+	}
+
+	TAlScore pen;          // current penalty
+	EList<FmStringOp> ops; // op string
 };
 
 /**
@@ -338,6 +438,18 @@ struct PerReadMetrics {
 		nUgFail = nUgFailStreak = nUgLastSucc =
 		nEeFail = nEeFailStreak = nEeLastSucc =
 		nFilt = 0;
+		nFtabs = 0;
+		nRedSkip = 0;
+		nRedFail = 0;
+		nRedIns = 0;
+		doFmString = false;
+		nSeedRanges = nSeedElts = 0;
+		nSeedRangesFw = nSeedEltsFw = 0;
+		nSeedRangesRc = nSeedEltsRc = 0;
+		seedMedian = seedMean = 0;
+		bestLtMinscMate1 =
+		bestLtMinscMate2 = std::numeric_limits<TAlScore>::min();
+		fmString.reset();
 	}
 
 	struct timeval  tv_beg; // timer start to measure how long alignment takes
@@ -367,9 +479,26 @@ struct PerReadMetrics {
 
 	uint64_t nRedundants;   // # redundant seed hits
 	
+	uint64_t nSeedRanges;   // # BW ranges found for seeds
+	uint64_t nSeedElts;     // # BW elements found for seeds
+
+	uint64_t nSeedRangesFw; // # BW ranges found for seeds from fw read
+	uint64_t nSeedEltsFw;   // # BW elements found for seeds from fw read
+
+	uint64_t nSeedRangesRc; // # BW ranges found for seeds from fw read
+	uint64_t nSeedEltsRc;   // # BW elements found for seeds from fw read
+	
+	uint64_t seedMedian;    // median seed hit count
+	uint64_t seedMean;      // rounded mean seed hit count
+	
 	uint64_t nEeFmops;      // FM Index ops for end-to-end alignment
 	uint64_t nSdFmops;      // FM Index ops used to align seeds
 	uint64_t nExFmops;      // FM Index ops used to resolve offsets
+	
+	uint64_t nFtabs;        // # ftab lookups
+	uint64_t nRedSkip;      // # times redundant path was detected and aborted
+	uint64_t nRedFail;      // # times a path was deemed non-redundant
+	uint64_t nRedIns;       // # times a path was added to redundancy list
 	
 	uint64_t nDpFail;       // number of dp failures in a row up until now
 	uint64_t nDpFailStreak; // longest streak of dp failures
@@ -384,6 +513,13 @@ struct PerReadMetrics {
 	uint64_t nEeLastSucc;   // index of last ungap attempt that succeeded
 	
 	uint64_t nFilt;         // # mates filtered
+	
+	TAlScore bestLtMinscMate1; // best invalid score observed for mate 1
+	TAlScore bestLtMinscMate2; // best invalid score observed for mate 2
+	
+	// For collecting information to go into an FM string
+	bool doFmString;
+	FmString fmString;
 };
 
 #endif /*READ_H_*/

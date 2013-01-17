@@ -1,5 +1,5 @@
 #
-# Copyright 2011, Ben Langmead <blangmea@jhsph.edu>
+# Copyright 2011, Ben Langmead <langmea@cs.jhu.edu>
 #
 # This file is part of Bowtie 2.
 #
@@ -76,29 +76,32 @@ PTHREAD_LIB = -lpthread
 endif
 endif
 
-PREFETCH_LOCALITY = 2
-PREF_DEF = -DPREFETCH_LOCALITY=$(PREFETCH_LOCALITY)
-
 LIBS = 
 SEARCH_LIBS = $(PTHREAD_LIB)
 BUILD_LIBS =
 
 SHARED_CPPS = ccnt_lut.cpp ref_read.cpp alphabet.cpp shmem.cpp \
               edit.cpp bt2_idx.cpp bt2_io.cpp bt2_util.cpp \
-              reference.cpp ds.cpp multikey_qsort.cpp limit.cpp
+              reference.cpp ds.cpp multikey_qsort.cpp limit.cpp \
+			  random_source.cpp
 SEARCH_CPPS = qual.cpp pat.cpp sam.cpp \
               read_qseq.cpp aligner_seed_policy.cpp \
-              aligner_seed.cpp aligner_sw.cpp \
+              aligner_seed.cpp \
+			  aligner_seed2.cpp \
+			  aligner_sw.cpp \
 			  aligner_sw_driver.cpp aligner_cache.cpp \
 			  aligner_result.cpp ref_coord.cpp mask.cpp \
 			  pe.cpp aln_sink.cpp dp_framer.cpp \
 			  scoring.cpp presets.cpp unique.cpp \
+			  simple_func.cpp \
+			  random_util.cpp \
 			  aligner_bt.cpp sse_util.cpp \
 			  aligner_swsse.cpp outq.cpp \
 			  aligner_swsse_loc_i16.cpp \
 			  aligner_swsse_ee_i16.cpp \
 			  aligner_swsse_loc_u8.cpp \
-			  aligner_swsse_ee_u8.cpp
+			  aligner_swsse_ee_u8.cpp \
+			  aligner_driver.cpp
 SEARCH_CPPS_MAIN = $(SEARCH_CPPS) bowtie_main.cpp
 
 BUILD_CPPS = diff_sample.cpp
@@ -149,7 +152,7 @@ GENERAL_LIST = $(wildcard scripts/*.sh) \
                $(PTHREAD_PKG) \
 			   bowtie2 \
                AUTHORS \
-               COPYING \
+               LICENSE \
                NEWS \
                MANUAL \
                MANUAL.markdown \
@@ -302,6 +305,7 @@ doc/manual.html: MANUAL.markdown
 	       --css style.css -o $@ \
 	       --from markdown --to HTML \
 	       --table-of-contents $^
+	rm -f .tmp.head
 
 MANUAL: MANUAL.markdown
 	perl doc/strip_markdown.pl < $^ > $@
