@@ -1,3 +1,9 @@
+bowtie2.0.6 (2.0.6) lucid; urgency=low
+
+  * Package latest upstream release
+
+ -- The Genome Institute <gmt@genome.wustl.edu>  Mon, 28 Jan 2013 17:29:18 -0600
+
 bowtie2.0.5 (2.0.5) lucid; urgency=low
 
   * Package latest upstream release
