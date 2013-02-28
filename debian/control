@@ -1,4 +1,4 @@
-Source: bowtie2.0.6
+Source: bowtie2.1.0
 Section: science
 Priority: optional
 Maintainer: The Genome Institute <gmt@genome.wustl.edu>
@@ -8,7 +8,7 @@ Build-Depends: debhelper (>= 7), g++
 Standards-Version: 3.9.2
 Homepage: http://bowtie-bio.sourceforge.net/bowtie2
 
-Package: bowtie2.0.6
+Package: bowtie2.1.0
 Architecture: amd64
 Depends: libc6
 Provides: bowtie2
